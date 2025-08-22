@@ -18,3 +18,7 @@ class ChangeDateRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     oldValue: str
     newValue: str
+
+class send_friend_request(BaseModel):
+    friend_name: str
+    message: str
