@@ -22,3 +22,7 @@ class ChangePasswordRequest(BaseModel):
 class send_friend_request(BaseModel):
     friend_name: str
     message: str
+
+class accept_friend_request(BaseModel):
+    friend_name: str
+    answer: str
