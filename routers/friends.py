@@ -53,6 +53,19 @@ def router_send_friend_request(payload: send_friend_request, user_id: int = Depe
             else:
                 raise HTTPException(status_code=404, detail="Recipient not found - Check for typos.")
             
+@router.get("/get-friend-requests")
+def router_get_friend_requests(user_id = Depends(get_current_user_id)):
+    with get_connection() as conn:
+        user_info = get_user_information(user_id, conn)
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found.")
+        
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT * FROM friend_requests WHERE recipient = %s LIMIT 100''', (user_info.get("username"),))
+            result = cursor.fetchall()
+
+            return result
+
 @router.post("/reply-friend-request")
 def router_accept_friend_request(payload = accept_friend_request, user_id = Depends(get_current_user_id)):
     with get_connection() as conn:
