@@ -64,22 +64,30 @@ def router_remove_friend(payload: friend_operation, user_id: int = Depends(get_c
         friend_list = user_info["friends"]
         friend = payload.friend_name
 
-        friend_info = get_user_information_by_username(friend, conn)
-        friend_friend_list = friend_info["friends"]
+        friend_friend_list = []
+        error = False # pov: friend account was deleted and no information can be get from it.
+        try:
+            friend_info = get_user_information_by_username(friend, conn)
+            friend_friend_list = friend_info["friends"]
+        except Exception:
+            error = True
 
         if friend.lower() in friend_list:
             friend_list.remove(friend.lower())
 
-        if username.lower() in friend_friend_list:
+        if username.lower() in friend_friend_list and error == False:
             friend_friend_list.remove(username.lower())
 
         processed_friend_list = ",".join(friend_list)
-        processed_friend_friend_list = ",".join(friend_friend_list)
-
-        with conn.cursor() as cursor:
-            cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_list, username))
-            cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_friend_list, friend))
-        conn.commit()
+        processed_friend_friend_list = ""
+        if error == False:
+            processed_friend_friend_list = ",".join(friend_friend_list)
+        if friend.lower() in friend_list or username.lower() in friend_friend_list:
+            with conn.cursor() as cursor:
+                cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_list, username))
+                if error == False:
+                    cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_friend_list, friend))
+            conn.commit()
     return {"message": "Successfully deleted friend"}
 
 @router.get("/get-friend-requests")
