@@ -65,7 +65,7 @@ def router_remove_friend(payload: friend_operation, user_id: int = Depends(get_c
         friend = payload.friend_name
 
         friend_friend_list = []
-        error = False # pov: friend account was deleted and no information can be get from it.
+        error = False # pov: friend account was deleted and no information can be get from it...
         try:
             friend_info = get_user_information_by_username(friend, conn)
             friend_friend_list = friend_info["friends"]
