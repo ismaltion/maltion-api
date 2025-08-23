@@ -43,9 +43,13 @@ def router_send_friend_request(payload: send_friend_request, user_id: int = Depe
 
             if result:
                 cursor.execute('''SELECT id FROM friend_requests WHERE author = %s AND recipient = %s''', (user_info["username"], recipient))
-                result_2 = cursor.fetchone()
-                if result_2:
+                result = cursor.fetchone()
+                if result:
                     raise HTTPException(status_code=400, detail="You have already sent a friend request to this user.")
+                cursor.execute('''SELECT * FROM friend_requests WHERE recipient = %s AND author = %s LIMIT 1''', (user_info.get("username"), recipient))
+                if result:
+                    raise HTTPException(status_code=400, detail="The recipient has sent you a friend request too. Accept it.")
+
                 cursor.execute('''INSERT INTO friend_requests (author, recipient, timestamp, message) VALUES (%s, %s, NOW(), %s)''', (user_info["username"], recipient, message))
                 conn.commit()
 
