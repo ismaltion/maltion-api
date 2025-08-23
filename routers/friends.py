@@ -62,9 +62,11 @@ def router_get_friend_requests(user_id = Depends(get_current_user_id)):
         
         with conn.cursor() as cursor:
             cursor.execute('''SELECT * FROM friend_requests WHERE recipient = %s LIMIT 100''', (user_info.get("username"),))
-            result = cursor.fetchall()
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
 
-            return result
+            results = [dict(zip(columns, row)) for row in rows]
+            return results
 
 @router.post("/reply-friend-request")
 def router_accept_friend_request(payload = accept_friend_request, user_id = Depends(get_current_user_id)):
