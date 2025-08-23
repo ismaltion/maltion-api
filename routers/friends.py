@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from auth import get_current_user_id
 from db import get_connection
 from utils import get_user_information, get_user_information_by_username
-from models import send_friend_request, accept_friend_request
+from models import send_friend_request, accept_friend_request, friend_operation
 
 router = APIRouter()
 
@@ -53,6 +53,35 @@ def router_send_friend_request(payload: send_friend_request, user_id: int = Depe
             else:
                 raise HTTPException(status_code=404, detail="Recipient not found - Check for typos.")
             
+@router.post("/remove-friend")
+def router_remove_friend(payload: friend_operation, user_id: int = Depends(get_current_user_id)):
+    with get_connection() as conn:
+        user_info = get_user_information(user_id, conn)
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found.")
+        
+        username = str(user_info["username"])
+        friend_list = user_info["friends"]
+        friend = payload.friend_name
+
+        friend_info = get_user_information_by_username(friend, conn)
+        friend_friend_list = friend_info["friends"]
+
+        if friend.lower() in friend_list:
+            friend_list.remove(friend.lower())
+
+        if username.lower() in friend_friend_list:
+            friend_friend_list.remove(username.lower())
+
+        processed_friend_list = ",".join(friend_list)
+        processed_friend_friend_list = ",".join(friend_friend_list)
+
+        with conn.cursor() as cursor:
+            cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_list, username))
+            cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_friend_list, friend))
+        conn.commit()
+    return {"message": "Successfully deleted friend"}
+
 @router.get("/get-friend-requests")
 def router_get_friend_requests(user_id = Depends(get_current_user_id)):
     with get_connection() as conn:
@@ -69,7 +98,7 @@ def router_get_friend_requests(user_id = Depends(get_current_user_id)):
             return results
 
 @router.post("/reply-friend-request")
-def router_accept_friend_request(payload = accept_friend_request, user_id = Depends(get_current_user_id)):
+def router_accept_friend_request(payload: accept_friend_request, user_id: int = Depends(get_current_user_id)):
     with get_connection() as conn:
         user_info = get_user_information(user_id, conn)
         username = user_info["username"]
@@ -93,12 +122,12 @@ def router_accept_friend_request(payload = accept_friend_request, user_id = Depe
             if answer == "accept":
                 friend_list = user_info["friends"]
                 if friend not in friend_list:
-                    friend_list.append(friend)
+                    friend_list.append(friend.lower())
                 processed_friend_list = ",".join(friend_list)
 
                 friend_friend_list = friend_info["friends"] # worst name ever for variable?
                 if username not in friend_friend_list:
-                    friend_friend_list.append(username)
+                    friend_friend_list.append(username.lower())
                 processed_friend_friend_list = ",".join(friend_friend_list)
         
                 cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_list, username))

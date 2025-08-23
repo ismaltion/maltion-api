@@ -26,3 +26,6 @@ class send_friend_request(BaseModel):
 class accept_friend_request(BaseModel):
     friend_name: str
     answer: str
+
+class friend_operation(BaseModel):
+    friend_name: str
