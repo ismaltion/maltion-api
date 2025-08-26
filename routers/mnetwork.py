@@ -2,8 +2,9 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, U
 from fastapi.responses import JSONResponse
 from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post
 from auth import get_current_user_id
-from db import get_connection
+from db import get_connection, get_dict_connection
 from utils import get_user_information
+import json
 
 router = APIRouter()
 noAccMsg = "You need to login with a Maltion account to do this action."
@@ -85,3 +86,43 @@ def router_create_post(payload: mnetwork_create_post, user_id = Depends(get_curr
             cursor.execute('''INSERT INTO posts (thread_id, author_id, author_name, content) VALUES (%s, %s, %s, %s)''', (thread_id, user_id, username, content))
             conn.commit()
         return JSONResponse(status_code=201, content={"message": "Post created successfully."})
+    
+@router.get("/mnetwork/get-community")
+def router_get_community(community: int):
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT * FROM communities WHERE id = %s''', (community,))
+            result = cursor.fetchone()
+        return result
+    
+@router.get("/mnetwork/get-thread")
+def router_get_community(thread: int):
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT * FROM threads WHERE id = %s''', (thread,))
+            result = cursor.fetchone()
+        return result
+
+@router.get("/mnetwork/get-community-threads")
+def router_get_community_threads(community: int):
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT * FROM threads WHERE community_id = %s LIMIT 50''', (community,))
+            result = cursor.fetchall()
+            return result
+
+@router.get("/mnetwork/get-thread-posts")
+def router_get_thread_posts(thread: int):
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT * FROM posts WHERE thread_id = %s LIMIT 50''', (thread,))
+            result = cursor.fetchall()
+            return result
+
+@router.get("/mnetwork/search-community")
+def router_search_community(query: str):
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT * FROM communities WHERE name LIKE %s OR description LIKE %s ORDER BY last_activity DESC LIMIT 50''', (f"%{query}%", f"%{query}%"))
+            result = cursor.fetchall()
+            return result

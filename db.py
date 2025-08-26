@@ -30,3 +30,23 @@ def get_connection(database = "main"):
         )
     else:
         raise WrongDatabase
+    
+def get_dict_connection(database = "main"):
+    if database == "main":
+        return pymysql.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_MAIN_NAME,
+            cursorclass=pymysql.cursors.DictCursor
+        )
+    elif database == "mnetwork":
+        return pymysql.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_MNETWORK_NAME,
+            cursorclass=pymysql.cursors.DictCursor
+        )
+    else:
+        raise WrongDatabase
