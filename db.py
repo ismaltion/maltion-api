@@ -7,7 +7,7 @@ load_dotenv()
 
 DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_PASSWORD = os.getenv("DB_PASSWORD") # did you really think i was going to place the password in the code lmao
 DB_MAIN_NAME = os.getenv("DB_MAIN_NAME")
 DB_MNETWORK_NAME = os.getenv("DB_MNETWORK_NAME")
 
