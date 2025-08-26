@@ -9,6 +9,7 @@ ALLOWED_ORIGINS = [
     "https://mclient.maltion.com",
     "https://voxarc.maltion.com",
     "https://insidia.maltion.com",
+    "https://mnetwork.maltion.com",
 ]
 
 if not os.path.exists(UPLOAD_FOLDER):
