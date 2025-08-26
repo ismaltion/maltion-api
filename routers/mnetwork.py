@@ -17,7 +17,7 @@ def router_create_community(payload: mnetwork_create_community, user_id = Depend
     description = payload.description
 
     with get_connection("mnetwork") as conn:
-        user_info = get_user_information(user_id, conn)
+        user_info = get_user_information(user_id)
                
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
@@ -39,7 +39,7 @@ def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_
     community_id = payload.community_id
 
     with get_connection("mnetwork") as conn:
-        user_info = get_user_information(user_id, conn)
+        user_info = get_user_information(user_id)
 
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
@@ -67,7 +67,7 @@ def router_create_post(payload: mnetwork_create_post, user_id = Depends(get_curr
     thread_id = payload.thread_id
 
     with get_connection("mnetwork") as conn:
-        user_info = get_user_information(user_id, conn)
+        user_info = get_user_information(user_id)
 
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
