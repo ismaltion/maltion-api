@@ -126,3 +126,11 @@ def router_search_community(query: str):
             cursor.execute('''SELECT * FROM communities WHERE name LIKE %s OR description LIKE %s ORDER BY last_activity DESC LIMIT 50''', (f"%{query}%", f"%{query}%"))
             result = cursor.fetchall()
             return result
+        
+@router.get("/mnetwork/my-communities")
+def router_search_community(user_id = Depends(get_current_user_id)):
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT * FROM communities WHERE author_id = %s LIMIT 50''', (user_id,))
+            result = cursor.fetchall()
+            return result
