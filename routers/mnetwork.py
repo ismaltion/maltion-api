@@ -149,9 +149,9 @@ def router_mnetwork_like_post(payload: like, user_id = Depends(get_current_user_
                     raise HTTPException(status_code=400, detail="You already liked this post.")
                 else:
                     cursor.execute('''INSERT INTO post_likes (post_id, author_id) VALUES (%s, %s)''', (post, user_id))
-                    cursor.execute('''SELECT COUNT(*) FROM post_likes WHERE post_id = %s''', (post,))
+                    cursor.execute('''SELECT COUNT(*) AS cnt FROM post_likes WHERE post_id = %s''', (post,))
                     result3 = cursor.fetchone()
-                    likes = result3[0]
+                    likes = result3["cnt"]
                     cursor.execute('''UPDATE posts SET likes = %s WHERE id = %s''', (likes, post))
                     conn.commit()
                     return JSONResponse(status_code=200, content={"message": "Like added successfully."})
@@ -172,9 +172,9 @@ def router_mnetwork_like_thread(payload: like, user_id = Depends(get_current_use
                     raise HTTPException(status_code=400, detail="You already liked this thread.")
                 else:
                     cursor.execute('''INSERT INTO thread_likes (thread_id, author_id) VALUES (%s, %s)''', (thread, user_id))
-                    cursor.execute('''SELECT COUNT(*) FROM thread_likes WHERE thread_id = %s''', (thread,))
+                    cursor.execute('''SELECT COUNT(*) AS cnt FROM thread_likes WHERE thread_id = %s''', (thread,))
                     result3 = cursor.fetchone()
-                    likes = result3[0]
+                    likes = result3["cnt"]
                     cursor.execute('''UPDATE threads SET likes = %s WHERE id = %s''', (likes, thread))
                     conn.commit()
                     return JSONResponse(status_code=200, content={"message": "Like added successfully."})
@@ -193,9 +193,9 @@ def router_mnetwork_unlike_post(payload: like, user_id = Depends(get_current_use
                 result2 = cursor.fetchone()
                 if result2:
                     cursor.execute('''DELETE FROM post_likes WHERE post_id = %s AND author_id = %s''', (post, user_id))
-                    cursor.execute('''SELECT COUNT(*) FROM post_likes WHERE post_id = %s''', (post,))
+                    cursor.execute('''SELECT COUNT(*) AS cnt FROM post_likes WHERE post_id = %s''', (post,))
                     result3 = cursor.fetchone()
-                    likes = result3[0]
+                    likes = result3["cnt"]
                     cursor.execute('''UPDATE posts SET likes = %s WHERE id = %s''', (likes, post))
                     conn.commit()
                     return JSONResponse(status_code=200, content={"message": "Like removed successfully."})
@@ -216,9 +216,9 @@ def router_mnetwork_unlike_thread(payload: like, user_id = Depends(get_current_u
                 result2 = cursor.fetchone()
                 if result2:
                     cursor.execute('''DELETE FROM thread_likes WHERE thread_id = %s AND author_id = %s''', (thread, user_id))
-                    cursor.execute('''SELECT COUNT(*) FROM thread_likes WHERE thread_id = %s''', (thread,))
+                    cursor.execute('''SELECT COUNT(*) AS cnt FROM thread_likes WHERE thread_id = %s''', (thread,))
                     result3 = cursor.fetchone()
-                    likes = result3[0]
+                    likes = result3["cnt"]
                     cursor.execute('''UPDATE threads SET likes = %s WHERE id = %s''', (likes, thread))
                     conn.commit()
                     return JSONResponse(status_code=200, content={"message": "Like removed successfully."})
