@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File
 from fastapi.responses import JSONResponse
-from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post
+from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, like
 from auth import get_current_user_id
 from db import get_connection, get_dict_connection
 from utils import get_user_information
@@ -134,3 +134,95 @@ def router_search_community(user_id = Depends(get_current_user_id)):
             cursor.execute('''SELECT * FROM communities WHERE author_id = %s LIMIT 50''', (user_id,))
             result = cursor.fetchall()
             return result
+        
+@router.post("/mnetwork/like-post")
+def router_mnetwork_like_post(payload: like, user_id = Depends(get_current_user_id)):
+    with get_dict_connection("mnetwork") as conn:
+        post = payload.id
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT likes FROM posts WHERE id = %s''', (post,))
+            result1 = cursor.fetchone()
+            if result1:
+                cursor.execute('''SELECT id FROM post_likes WHERE post_id = %s AND author_id = %s''', (post, user_id))
+                result2 = cursor.fetchone()
+                if result2:
+                    raise HTTPException(status_code=400, detail="You already liked this post.")
+                else:
+                    cursor.execute('''INSERT INTO post_likes (post_id, author_id) VALUES (%s, %s)''', (post, user_id))
+                    cursor.execute('''SELECT COUNT(*) FROM post_likes WHERE post_id = %s''', (post,))
+                    result3 = cursor.fetchone()
+                    likes = result3[0]
+                    cursor.execute('''UPDATE posts SET likes = %s WHERE id = %s''', (likes, post))
+                    conn.commit()
+                    return JSONResponse(status_code=200, content={"message": "Like added successfully."})
+            else:
+                raise HTTPException(status_code=404, detail="The post you attempted to like was not found.")
+            
+@router.post("/mnetwork/like-thread")
+def router_mnetwork_like_thread(payload: like, user_id = Depends(get_current_user_id)):
+    with get_dict_connection("mnetwork") as conn:
+        thread = payload.id
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT likes FROM threads WHERE id = %s''', (thread,))
+            result1 = cursor.fetchone()
+            if result1:
+                cursor.execute('''SELECT id FROM thread_likes WHERE thread_id = %s AND author_id = %s''', (thread, user_id))
+                result2 = cursor.fetchone()
+                if result2:
+                    raise HTTPException(status_code=400, detail="You already liked this thread.")
+                else:
+                    cursor.execute('''INSERT INTO thread_likes (thread_id, author_id) VALUES (%s, %s)''', (thread, user_id))
+                    cursor.execute('''SELECT COUNT(*) FROM thread_likes WHERE thread_id = %s''', (thread,))
+                    result3 = cursor.fetchone()
+                    likes = result3[0]
+                    cursor.execute('''UPDATE threads SET likes = %s WHERE id = %s''', (likes, thread))
+                    conn.commit()
+                    return JSONResponse(status_code=200, content={"message": "Like added successfully."})
+            else:
+                raise HTTPException(status_code=404, detail="The thread you attempted to like was not found.")
+            
+@router.post("/mnetwork/unlike-post")
+def router_mnetwork_unlike_post(payload: like, user_id = Depends(get_current_user_id)):
+    with get_dict_connection("mnetwork") as conn:
+        post = payload.id
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT likes FROM posts WHERE id = %s''', (post,))
+            result1 = cursor.fetchone()
+            if result1:
+                cursor.execute('''SELECT id FROM post_likes WHERE post_id = %s AND author_id = %s''', (post, user_id))
+                result2 = cursor.fetchone()
+                if result2:
+                    cursor.execute('''DELETE FROM post_likes WHERE post_id = %s AND author_id = %s''', (post, user_id))
+                    cursor.execute('''SELECT COUNT(*) FROM post_likes WHERE post_id = %s''', (post,))
+                    result3 = cursor.fetchone()
+                    likes = result3[0]
+                    cursor.execute('''UPDATE posts SET likes = %s WHERE id = %s''', (likes, post))
+                    conn.commit()
+                    return JSONResponse(status_code=200, content={"message": "Like removed successfully."})
+                else:
+                    raise HTTPException(status_code=400, detail="You didn't like this post yet.")
+            else:
+                raise HTTPException(status_code=404, detail="The post you attempted to remove your like from was not found.")
+            
+@router.post("/mnetwork/unlike-thread")
+def router_mnetwork_unlike_thread(payload: like, user_id = Depends(get_current_user_id)):
+    with get_dict_connection("mnetwork") as conn:
+        thread = payload.id
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT likes FROM threads WHERE id = %s''', (thread,))
+            result1 = cursor.fetchone()
+            if result1:
+                cursor.execute('''SELECT id FROM thread_likes WHERE thread_id = %s AND author_id = %s''', (thread, user_id))
+                result2 = cursor.fetchone()
+                if result2:
+                    cursor.execute('''DELETE FROM thread_likes WHERE thread_id = %s AND author_id = %s''', (thread, user_id))
+                    cursor.execute('''SELECT COUNT(*) FROM thread_likes WHERE thread_id = %s''', (thread,))
+                    result3 = cursor.fetchone()
+                    likes = result3[0]
+                    cursor.execute('''UPDATE threads SET likes = %s WHERE id = %s''', (likes, thread))
+                    conn.commit()
+                    return JSONResponse(status_code=200, content={"message": "Like removed successfully."})
+                else:
+                    raise HTTPException(status_code=400, detail="You didn't like this thread yet.")
+            else:
+                raise HTTPException(status_code=404, detail="The thread you attempted to remove your like from was not found.")

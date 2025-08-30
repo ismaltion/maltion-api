@@ -55,3 +55,6 @@ class mnetwork_create_thread(BaseModel):
 class mnetwork_create_post(BaseModel):
     content: str
     thread_id: int
+
+class like(BaseModel):
+    id: int

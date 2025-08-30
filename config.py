@@ -11,6 +11,8 @@ ALLOWED_ORIGINS = [
     "https://insidia.maltion.com",
     "https://network.maltion.com",
     "http://network.maltion.com",
+    "https://rdmedics.maltion.com",
+    "http://rdmedics.maltion.com"
 ]
 
 if not os.path.exists(UPLOAD_FOLDER):
