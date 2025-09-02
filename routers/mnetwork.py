@@ -181,6 +181,29 @@ def router_mnetwork_like_thread(payload: like, user_id = Depends(get_current_use
             else:
                 raise HTTPException(status_code=404, detail="The thread you attempted to like was not found.")
             
+@router.post("/mnetwork/follow_community")
+def router_mnetwork_follow_community(payload: like, user_id = Depends(get_current_user_id)):
+    with get_dict_connection("mnetwork") as conn:
+        community = payload.id
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT follows FROM communities WHERE id = %s''', (community,))
+            result1 = cursor.fetchone()
+            if result1:
+                cursor.execute('''SELECT id FROM community_follows WHERE community_id = %s AND author_id = %s''', (community, user_id))
+                result2 = cursor.fetchone()
+                if result2:
+                    raise HTTPException(status_code=400, detail="You already liked this community.")
+                else:
+                    cursor.execute('''INSERT INTO community_follows (community_id, author_id) VALUES (%s, %s)''', (community, user_id))
+                    cursor.execute('''SELECT COUNT(*) AS cnt FROM community_follows WHERE community_id = %s''', (community,))
+                    result3 = cursor.fetchone()
+                    likes = result3["cnt"]
+                    cursor.execute('''UPDATE communities SET follows = %s WHERE id = %s''', (likes, community))
+                    conn.commit()
+                    return JSONResponse(status_code=200, content={"message": "Follow added successfully."})
+            else:
+                raise HTTPException(status_code=404, detail="The community you attempted to follow was not found.")
+            
 @router.post("/mnetwork/unlike-post")
 def router_mnetwork_unlike_post(payload: like, user_id = Depends(get_current_user_id)):
     with get_dict_connection("mnetwork") as conn:
@@ -226,3 +249,31 @@ def router_mnetwork_unlike_thread(payload: like, user_id = Depends(get_current_u
                     raise HTTPException(status_code=400, detail="You didn't like this thread yet.")
             else:
                 raise HTTPException(status_code=404, detail="The thread you attempted to remove your like from was not found.")
+            
+@router.get("/mnetwork/get-feed")
+def router_mnetwork_get_feed(user_id = Depends(get_current_user_id)):
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT community_id FROM community_follows WHERE author_id = %s",
+                (user_id,)
+            )
+            followed_communities = [row['community_id'] for row in cursor.fetchall()]
+            
+            if followed_communities:
+                format_strings = ",".join(['%s'] * len(followed_communities))
+                query = f'''
+                    SELECT * FROM threads
+                    WHERE community_id IN ({format_strings})
+                    ORDER BY created_at DESC
+                    LIMIT 30
+                '''
+                cursor.execute(query, tuple(followed_communities))
+                threads = cursor.fetchall()
+            else:
+                cursor.execute(
+                    "SELECT * FROM threads WHERE community_id = 1 ORDER BY created_at DESC LIMIT 30"
+                )
+                threads = cursor.fetchall()
+            
+            return threads
