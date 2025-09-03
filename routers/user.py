@@ -116,7 +116,7 @@ def route_getUsername(user_id: int = Depends(get_current_user_id)):
     return {"username": user_info["username"]}
 
 @router.get("/check-login")
-def route_getUserInfo(user_id: int = Depends(get_current_user_id)):
+def route_check_login(user_id: int = Depends(get_current_user_id)):
     with get_connection() as conn:
         user_info = get_user_information(user_id, conn)
 

@@ -226,7 +226,7 @@ def router_mnetwork_unlike_post(payload: like, user_id = Depends(get_current_use
                     raise HTTPException(status_code=400, detail="You didn't like this post yet.")
             else:
                 raise HTTPException(status_code=404, detail="The post you attempted to remove your like from was not found.")
-            
+
 @router.post("/mnetwork/unlike-thread")
 def router_mnetwork_unlike_thread(payload: like, user_id = Depends(get_current_user_id)):
     with get_dict_connection("mnetwork") as conn:
@@ -249,7 +249,7 @@ def router_mnetwork_unlike_thread(payload: like, user_id = Depends(get_current_u
                     raise HTTPException(status_code=400, detail="You didn't like this thread yet.")
             else:
                 raise HTTPException(status_code=404, detail="The thread you attempted to remove your like from was not found.")
-            
+                    
 @router.get("/mnetwork/get-feed")
 def router_mnetwork_get_feed(user_id = Depends(get_current_user_id)):
     with get_dict_connection("mnetwork") as conn:
