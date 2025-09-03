@@ -14,17 +14,20 @@ def get_current_session(session_token: str = Cookie(None)):
     return session_token
 
 def get_current_user_id(session_token: str = Cookie(None)):
-    if not session_token:
-        raise HTTPException(status_code=401, detail="Missing session token")
+    try:
+        if not session_token:
+            return None
     
-    conn = get_connection()
-    user_id = validate_session(conn, session_token)
-    conn.close()
+        with get_connection() as conn:
+            user_id = validate_session(conn, session_token)
 
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid or expired session token")
+        if not user_id:
+            return None
     
-    return user_id
+        return user_id
+    except Exception as e:
+        print(e)
+        return None
 
 # -------------------
 # Passwords
@@ -61,20 +64,22 @@ def create_session(conn, user_id, expiry_days=7):
 def validate_session(conn, session_token):
     with conn.cursor() as cursor:
         cursor.execute(
-            """
+            '''
             SELECT userId, expiresAt FROM sessions
             WHERE sessionToken = %s
-            """,
+            ''',
             (session_token,)
         )
         session = cursor.fetchone()
 
-    if not session:
-        return None
+        if not session:
+            return None
 
-    user_id, expires_at = session
-    if expires_at < datetime.utcnow():
-        return None
+        user_id, expires_at = session
+        if expires_at < datetime.utcnow():
+            cursor.execute('''DELETE FROM sessions WHERE sessionToken = %s''', (session_token,))
+            conn.commit()
+            return None
 
     return user_id
 

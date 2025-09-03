@@ -4,6 +4,7 @@ from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_c
 from auth import get_current_user_id
 from db import get_connection, get_dict_connection
 from utils import get_user_information
+from typing import Optional
 import json
 
 router = APIRouter()
@@ -87,13 +88,25 @@ def router_create_post(payload: mnetwork_create_post, user_id = Depends(get_curr
             conn.commit()
         return JSONResponse(status_code=201, content={"message": "Post created successfully."})
     
+# should work even if not logged in
 @router.get("/mnetwork/get-community")
-def router_get_community(community: int):
+def router_get_community(community: int, user_id = Depends(get_current_user_id)):
+    liked = False
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT * FROM communities WHERE id = %s''', (community,))
-            result = cursor.fetchone()
-        return result
+            cursor.execute('''SELECT author_id, author_name, name, description, locked, can_add, timestamp, last_activity, follows FROM communities WHERE id = %s LIMIT 1''', (community,))
+            result1 = cursor.fetchone()
+            if result1:
+                if user_id:
+                    # return if user is following this community
+                    cursor.execute('''SELECT id FROM community_follows WHERE community_id = %s AND author_id = %s LIMIT 1''', (community, user_id))
+                    result2 = cursor.fetchone()
+
+                    liked = bool(result2)
+            else:
+                raise HTTPException(status_code=404, detail="Community not found.")
+
+    return {"community": result1, "liked": liked}
     
 @router.get("/mnetwork/get-thread")
 def router_get_community(thread: int):
