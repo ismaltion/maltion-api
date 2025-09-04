@@ -367,6 +367,7 @@ def transfer_community_ownership(payload: transferCommunityOwnership, user_id = 
                     return JSONResponse(status_code=401, detail="Login required.")
         except Exception as e:
             conn.rollback()
+            print("Error: " + str(e))
             raise HTTPException(status_code=500, detail="Operation failed.")
 
 @router.post("/mnetwork/delete-community")
@@ -391,15 +392,17 @@ def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_
 
                 if author != user_id:
                     return JSONResponse(status_code=403, content={"detail": "You must be the owner of this community to delete it."})
+                
+                with get_dict_connection("main") as main_conn:
+                    with main_conn.cursor() as main_cursor:
+                        main_cursor.execute("SELECT password FROM users WHERE id = %s", (user_id,))
+                        credentials = main_cursor.fetchone()
 
-                cursor.execute("SELECT password FROM users WHERE id = %s", (user_id,))
-                credentials = cursor.fetchone()
-
-                if not credentials:
-                    return JSONResponse(
-                        status_code=500,
-                        content={"detail": "Unexpected error occurred: Missing user information. Contact support to fix this."}
-                    )
+                        if not credentials:
+                            return JSONResponse(
+                                status_code=500,
+                                content={"detail": "Unexpected error occurred: Missing user information. Contact support to fix this."}
+                            )
 
                 hashed_password = credentials["password"]
                 if not check_password(password, hashed_password):
@@ -412,4 +415,5 @@ def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_
 
         except Exception as e:
             conn.rollback()
+            print("Error: " + str(e))
             raise HTTPException(status_code=500, detail="Operation failed.")
