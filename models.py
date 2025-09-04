@@ -70,5 +70,5 @@ class deleteCommunity(BaseModel):
 
 class updateCommunitySettings(BaseModel):
     community_id: int
-    locked = int
-    can_add = int
+    locked: int
+    can_add: int
