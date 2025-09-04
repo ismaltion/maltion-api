@@ -368,8 +368,6 @@ def transfer_community_ownership(payload: transferCommunityOwnership, user_id = 
         except Exception as e:
             conn.rollback()
             raise HTTPException(status_code=500, detail="Operation failed.")
-        finally:
-            conn.close()
 
 @router.post("/mnetwork/delete-community")
 def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_id)):
@@ -415,5 +413,3 @@ def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_
         except Exception as e:
             conn.rollback()
             raise HTTPException(status_code=500, detail="Operation failed.")
-        finally:
-            conn.close()
