@@ -58,3 +58,17 @@ class mnetwork_create_post(BaseModel):
 
 class like(BaseModel):
     id: int
+
+class transferCommunityOwnership(BaseModel):
+    community_id: int
+    new_owner: str
+    password: str
+
+class deleteCommunity(BaseModel):
+    community_id: int
+    password: str
+
+class updateCommunitySettings(BaseModel):
+    community_id: int
+    locked = int
+    can_add = int

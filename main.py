@@ -22,6 +22,7 @@ app.include_router(mnetwork.router)
 
 @app.on_event("startup")
 async def start_bot():
-    asyncio.create_task(rdmedics.run_bot())
+    pass
+    # asyncio.create_task(rdmedics.run_bot())
 
 print("Server started.")
