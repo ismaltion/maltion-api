@@ -164,12 +164,27 @@ def router_get_community_threads(community: int):
             return result
 
 @router.get("/mnetwork/get-thread-posts")
-def router_get_thread_posts(thread: int):
+def router_get_thread_posts(thread: int, user_id = Depends(get_current_user_id)):
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
             cursor.execute('''SELECT * FROM posts WHERE thread_id = %s LIMIT 50''', (thread,))
-            result = cursor.fetchall()
-            return result
+            posts = cursor.fetchall()
+
+            liked_post_ids = set()
+            if user_id and posts:
+                post_ids = [post["id"] for post in posts]
+
+                cursor.execute(
+                    '''SELECT post_id FROM post_likes WHERE author_id = %s AND post_id = ANY(%s)''',
+                    (user_id, post_ids)
+                )
+                liked_rows = cursor.fetchall()
+                liked_post_ids = {row["post_id"] for row in liked_rows}
+
+            for post in posts:
+                post["liked"] = post["id"] in liked_post_ids
+
+    return {"posts": posts}
 
 @router.get("/mnetwork/search-community")
 def router_search_community(query: str):
