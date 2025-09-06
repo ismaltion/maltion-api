@@ -49,11 +49,13 @@ def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_
         username = user_info.get("username")
 
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT locked FROM communities WHERE id = %s''', (community_id,))
+            cursor.execute('''SELECT locked, can_add FROM communities WHERE id = %s''', (community_id,))
             result = cursor.fetchone()
             if result:
                 if result[0] == 1:
                     raise HTTPException(status_code=401, detail="This community is locked.")
+                if result[1] == 0:
+                    raise HTTPException(status_code=401, detail="This community doesn't allow the creation of threads.")
             else:
                 raise HTTPException(status_code=404, detail="The community you tried to post this thread in was not found.")
             cursor.execute('''INSERT INTO threads (community_id, author_id, author_name, title, content, locked) VALUES (%s, %s, %s, %s, %s, 0)''', (community_id, user_id, username, title, content))
@@ -245,6 +247,29 @@ def router_mnetwork_follow_community(payload: like, user_id = Depends(get_curren
             else:
                 raise HTTPException(status_code=404, detail="The community you attempted to follow was not found.")
             
+@router.post("/mnetwork/unfollow-community")
+def router_mnetwork_unfollow_community(payload: like, user_id=Depends(get_current_user_id)):
+    with get_dict_connection("mnetwork") as conn:
+        community = payload.id
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT follows FROM communities WHERE id = %s''', (community,))
+            result1 = cursor.fetchone()
+            if result1:
+                cursor.execute('''SELECT id FROM community_follows WHERE community_id = %s AND author_id = %s''', (community, user_id))
+                result2 = cursor.fetchone()
+                if not result2:
+                    raise HTTPException(status_code=400, detail="You are not following this community.")
+                else:
+                    cursor.execute('''DELETE FROM community_follows WHERE community_id = %s AND author_id = %s''', (community, user_id))
+                    cursor.execute('''SELECT COUNT(*) AS cnt FROM community_follows WHERE community_id = %s''', (community,))
+                    result3 = cursor.fetchone()
+                    likes = result3["cnt"]
+                    cursor.execute('''UPDATE communities SET follows = %s WHERE id = %s''', (likes, community))
+                    conn.commit()
+                    return JSONResponse(status_code=200, content={"message": "Unfollowed successfully."})
+            else:
+                raise HTTPException(status_code=404, detail="The community you attempted to unfollow was not found.")
+            
 @router.post("/mnetwork/unlike-post")
 def router_mnetwork_unlike_post(payload: like, user_id = Depends(get_current_user_id)):
     with get_dict_connection("mnetwork") as conn:
@@ -337,34 +362,44 @@ def transfer_community_ownership(payload: transferCommunityOwnership, user_id = 
                         author = result["author_id"]
 
                         if author == user_id:
-                            cursor.execute("SELECT password FROM users WHERE id = %s", (user_id,))
-                            credentials = cursor.fetchone()
+                            with get_dict_connection("main") as main_conn:
+                                with main_conn.cursor() as main_cursor:
+                                    main_cursor.execute("SELECT password FROM users WHERE id = %s", (user_id,))
+                                    credentials = main_cursor.fetchone()
+            
+                                    if not credentials:
+                                        return JSONResponse(
+                                            status_code=500,
+                                            content={"detail": "Unexpected error occurred: Missing user information. Contact support to fix this."}
+                                        )
+            
+                                    hashed_password = credentials["password"]
+                                    if not check_password(password, hashed_password):
+                                        return JSONResponse(status_code=401, content={"detail": "Incorrect password."})
 
-                            if not credentials:
-                                return JSONResponse(status_code=500, detail="Unexpected error occurred: Missing user information. Contact support to fix this.")
+                                    main_cursor.execute("SELECT id, username FROM users WHERE username = %s", (new_owner,))
+                                    result_2 = main_cursor.fetchone()
+                                    if result_2:
+                                        new_owner_id = result_2["id"]
+                                        new_owner_username = result_2["username"] # to match database's username since it's not case sensitive
 
-                            hashed_password = credentials["password"]
+                                        cursor.execute('''SELECT id FROM community_follows WHERE community_id = %s AND author_id = %s''', (community_id, new_owner_id))
+                                        result_3 = cursor.fetchone()
 
-                            if not check_password(password, hashed_password):
-                                return JSONResponse(status_code=401, detail="Incorrect password.")
+                                        if not result_3:
+                                            return JSONResponse(status_code=401, content="The new owner should be following this community in order to transfer it.")
 
-                            cursor.execute("SELECT id, username FROM users WHERE username = %s", (new_owner,))
-                            result_2 = cursor.fetchone()
-                            if result_2:
-                                new_owner_id = result_2["id"]
-                                new_owner_username = result_2["username"] # to match database's username since it's not case sensitive
-
-                                cursor.execute("UPDATE communities SET author_id = %s, author_name = %s WHERE id = %s", (new_owner_id, new_owner_username, community_id))
-                                conn.commit()
-                                return {"message": "Ownership successfully transferred."}
-                            else:
-                                return JSONResponse(status_code=404, detail="New owner not found. Make sure you wrote their username right.")
+                                        cursor.execute("UPDATE communities SET author_id = %s, author_name = %s WHERE id = %s", (new_owner_id, new_owner_username, community_id))
+                                        conn.commit()
+                                        return {"message": "Ownership successfully transferred."}
+                                    else:
+                                        return JSONResponse(status_code=404, content="New owner not found. Make sure you wrote their username right.")
                         else:
-                            return JSONResponse(status_code=403, detail="You need to be the owner of this community to do this action.")
+                            return JSONResponse(status_code=403, content="You need to be the owner of this community to do this action.")
                     else:
-                        return JSONResponse(status_code=404, detail="Community not found.")
+                        return JSONResponse(status_code=404, content="Community not found.")
                 else:
-                    return JSONResponse(status_code=401, detail="Login required.")
+                    return JSONResponse(status_code=401, content="Login required.")
         except Exception as e:
             conn.rollback()
             print("Error: " + str(e))
@@ -404,9 +439,9 @@ def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_
                                 content={"detail": "Unexpected error occurred: Missing user information. Contact support to fix this."}
                             )
 
-                hashed_password = credentials["password"]
-                if not check_password(password, hashed_password):
-                    return JSONResponse(status_code=401, content={"detail": "Incorrect password."})
+                        hashed_password = credentials["password"]
+                        if not check_password(password, hashed_password):
+                            return JSONResponse(status_code=401, content={"detail": "Incorrect password."})
 
                 cursor.execute("DELETE FROM communities WHERE id = %s", (community_id,))
                 conn.commit()
