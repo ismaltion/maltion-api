@@ -139,12 +139,21 @@ def router_update_community_settings(payload: updateCommunitySettings, user_id =
             return { "message": "Settings updated successfully" }
     
 @router.get("/mnetwork/get-thread")
-def router_get_community(thread: int):
+def router_get_thread(thread: int, user_id = Depends(get_current_user_id)):
+    liked = False
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT * FROM threads WHERE id = %s''', (thread,))
+            cursor.execute('''SELECT * FROM threads WHERE id = %s LIMIT 1''', (thread,))
             result = cursor.fetchone()
-        return result
+            if result:
+                if user_id:
+                    cursor.execute('''SELECT id FROM thread_likes WHERE thread_id = %s AND author_id = %s LIMIT 1''', (thread, user_id))
+                    follow_result = cursor.fetchone()
+                    liked = bool(follow_result)
+            else:
+                raise HTTPException(status_code=404, detail="Thread not found.")
+    
+    return {"thread": result, "liked": liked}
 
 @router.get("/mnetwork/get-community-threads")
 def router_get_community_threads(community: int):
