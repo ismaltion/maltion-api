@@ -174,10 +174,10 @@ def router_get_thread_posts(thread: int, user_id = Depends(get_current_user_id))
             if user_id and posts:
                 post_ids = [post["id"] for post in posts]
 
-                cursor.execute(
-                    '''SELECT post_id FROM post_likes WHERE author_id = %s AND post_id = ANY(%s)''',
-                    (user_id, post_ids)
-                )
+                placeholders = ','.join(['%s'] * len(post_ids))
+                query = f'''SELECT post_id FROM post_likes WHERE author_id = %s AND post_id IN ({placeholders})'''
+
+                cursor.execute(query, (user_id, *post_ids))
                 liked_rows = cursor.fetchall()
                 liked_post_ids = {row["post_id"] for row in liked_rows}
 
