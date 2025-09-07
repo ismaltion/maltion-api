@@ -51,3 +51,19 @@ def get_user_information_by_username(username, conn):
             user_info["friends"] = []
 
         return user_info
+    
+def send_notification(user_id, notification, conn = None):
+    autoclose = False
+    if not conn:
+        conn = get_connection("main")
+        autoclose = True
+    
+    with conn.cursor() as cursor:
+        cursor.execute("INSERT INTO notifications (user_id, type, content, reference_id) VALUES (%s, %s, %s, %s)", (user_id, notification.get("type"), notification.get("content"), notification.get("reference_id")))
+        conn.commit()
+
+    if autoclose:
+        conn.close()
+
+def notification(type, content, reference_id):
+    return { "type": type, "content": content, "reference_id": reference_id}

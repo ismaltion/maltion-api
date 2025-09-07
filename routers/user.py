@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File
 from models import ChangeFieldRequest, ChangeDateRequest, ChangePasswordRequest, reportAbuse
 from auth import get_current_user_id, hash_password, check_password, create_session, validate_session, remove_session, remove_session_by_user_id
-from db import get_connection
-from utils import get_user_information
+from db import get_connection, get_dict_connection
+from utils import get_user_information, send_notification
 from typing import Optional, List
 from datetime import date, datetime
 from config import UPLOAD_FOLDER, MAX_FILE_SIZE
@@ -322,7 +322,7 @@ async def route_upload_image(user_id: int = Depends(get_current_user_id), file: 
     return { "filename": file.filename, "message": "Image uploaded successfully" }
 
 @router.post("/report")
-async def report_abuse(payload: reportAbuse, user_id = Depends(get_current_user_id)):
+def report_abuse(payload: reportAbuse, user_id = Depends(get_current_user_id)):
     module = payload.module
     reason = payload.reason
     content_type = payload.type
@@ -335,3 +335,18 @@ async def report_abuse(payload: reportAbuse, user_id = Depends(get_current_user_
             cursor.execute("INSERT INTO reports (parent_id, parent_module, parent_type, author_id, type, content) VALUES (%s, %s, %s, %s, %s, %s)", (content_id, module, content_type, user_id, reason, details))
             conn.commit()
             return { "message": "Success" }
+        
+@router.get("/notifications")
+def get_notifications(user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You must log in to do this action.")
+    
+    with get_dict_connection("main") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM notifications WHERE user_id = %s ORDER BY timestamp DESC LIMIT 50", (user_id,))
+            result = cursor.fetchall()
+
+            cursor.execute("UPDATE notifications SET is_read = 1 WHERE user_id = %s", (user_id,))
+            conn.commit()
+
+            return { "notifications": result }
