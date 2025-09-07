@@ -1,8 +1,15 @@
 from fastapi import Cookie, HTTPException, Depends
 from db import get_connection
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 import bcrypt
 import secrets
+import hashlib
+import os
+
+load_dotenv()
+
+MCLIENT_SALT = os.getenv("MCLIENT_SALT")
 
 # -------------------
 # Session things
@@ -98,3 +105,9 @@ def remove_session_by_user_id(conn, user_id):
             (user_id,)
         )
         conn.commit()
+
+def check_mclient_password(password, hash):
+    saltedpassword = (MCLIENT_SALT, password)
+    new_hash = hashlib.sha256(saltedpassword.encode()).hexdigest()
+
+    return new_hash == hash
