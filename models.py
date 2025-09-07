@@ -78,4 +78,4 @@ class reportAbuse(BaseModel):
     reason: str
     type: str
     id: int
-    detail = Optional[str] = "No details provided."
+    detail: Optional[str] = "No details provided."
