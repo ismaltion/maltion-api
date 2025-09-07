@@ -59,6 +59,9 @@ class mnetwork_create_post(BaseModel):
 class like(BaseModel):
     id: int
 
+class follow(BaseModel):
+    user: str
+
 class transferCommunityOwnership(BaseModel):
     community_id: int
     new_owner: str

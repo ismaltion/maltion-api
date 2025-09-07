@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File
 from fastapi.responses import JSONResponse
-from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, like, transferCommunityOwnership, deleteCommunity, updateCommunitySettings
+from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings
 from auth import get_current_user_id, check_password
 from db import get_connection, get_dict_connection
 from utils import get_user_information, get_user_information_by_username, send_notification, notification
@@ -95,7 +95,7 @@ def router_create_post(payload: mnetwork_create_post, user_id = Depends(get_curr
                     recipient_data = get_user_information_by_username(recipient)
                     if recipient_data:
                         recipient_id = recipient_data.get("id")
-                        send_notification(recipient_id, notify, conn)
+                        send_notification(recipient_id, notify)
 
             conn.commit()
         return JSONResponse(status_code=201, content={"message": "Post created successfully."})
@@ -220,6 +220,14 @@ def router_search_community(query: str):
             result = cursor.fetchall()
             return { "posts": result }
         
+@router.get("/mnetwork/search-users")
+def router_search_community(query: str):
+    with get_dict_connection("main") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT * FROM users WHERE username LIKE %s ORDER BY timestamp DESC LIMIT 50''', (f"%{query}%",))
+            result = cursor.fetchall()
+            return { "users": result }
+        
 @router.get("/mnetwork/my-communities")
 def router_search_community(user_id = Depends(get_current_user_id)):
     with get_dict_connection("mnetwork") as conn:
@@ -227,6 +235,27 @@ def router_search_community(user_id = Depends(get_current_user_id)):
             cursor.execute('''SELECT * FROM communities WHERE author_id = %s LIMIT 50''', (user_id,))
             result = cursor.fetchall()
             return result
+        
+@router.post("/mnetwork/follow-user")
+def router_mnetwork_like_post(payload: follow, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    with get_dict_connection("mnetwork") as conn:
+        recipient = payload.user
+        with conn.cursor() as cursor:
+            recipient_info = get_user_information_by_username(recipient)
+            if recipient_info:
+                recipient_id = recipient_info["id"]
+                cursor.execute('''SELECT id FROM user_follows WHERE user_id = %s AND author_id = %s''', (recipient_id, user_id))
+                result2 = cursor.fetchone()
+                if result2:
+                    raise HTTPException(status_code=400, detail="You already followed this user.")
+                else:
+                    cursor.execute('''INSERT INTO user_follows (user_id, author_id) VALUES (%s, %s)''', (recipient_id, user_id))
+                    conn.commit()
+                    return JSONResponse(status_code=200, content={"message": "User followed successfully."})
+            else:
+                raise HTTPException(status_code=404, detail="The user you attempted to follow was not found.")
         
 @router.post("/mnetwork/like-post")
 def router_mnetwork_like_post(payload: like, user_id = Depends(get_current_user_id)):
@@ -365,6 +394,33 @@ def router_mnetwork_unlike_thread(payload: like, user_id = Depends(get_current_u
                     raise HTTPException(status_code=400, detail="You didn't like this thread yet.")
             else:
                 raise HTTPException(status_code=404, detail="The thread you attempted to remove your like from was not found.")
+            
+@router.post("/mnetwork/unfollow-user")
+def router_mnetwork_unfollow_user(payload: follow, user_id=Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    with get_dict_connection("mnetwork") as conn:
+        recipient = payload.user
+        with conn.cursor() as cursor:
+            recipient_info = get_user_information_by_username(recipient)
+            if recipient_info:
+                recipient_id = recipient_info["id"]
+                cursor.execute(
+                    '''SELECT id FROM user_follows WHERE user_id = %s AND author_id = %s''',
+                    (recipient_id, user_id)
+                )
+                result = cursor.fetchone()
+                if not result:
+                    raise HTTPException(status_code=400, detail="You are not following this user.")
+                else:
+                    cursor.execute(
+                        '''DELETE FROM user_follows WHERE user_id = %s AND author_id = %s''',
+                        (recipient_id, user_id)
+                    )
+                    conn.commit()
+                    return JSONResponse(status_code=200, content={"message": "User unfollowed successfully."})
+            else:
+                raise HTTPException(status_code=404, detail="The user you attempted to unfollow was not found.")
                     
 @router.get("/mnetwork/get-feed")
 def router_mnetwork_get_feed(user_id = Depends(get_current_user_id)):
@@ -502,3 +558,56 @@ def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_
             conn.rollback()
             print("Error: " + str(e))
             raise HTTPException(status_code=500, detail="Operation failed.")
+        
+@router.get("/mnetwork/get-user-communities")
+def get_user_communities(user: str):
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM communities WHERE author_name = %s ORDER BY timestamp DESC LIMIT 50", (user,))
+            result = cursor.fetchall()
+
+            return {"communities": result}
+        
+@router.get("/mnetwork/get-user-threads")
+def get_user_communities(user: str):
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM threads WHERE author_name = %s ORDER BY timestamp DESC LIMIT 50", (user,))
+            result = cursor.fetchall()
+
+            return {"threads": result}
+        
+@router.get("/mnetwork/get-user-posts")
+def get_user_communities(user: str):
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM posts WHERE author_name = %s ORDER BY timestamp DESC LIMIT 50", (user,))
+            result = cursor.fetchall()
+
+            return {"posts": result}
+        
+@router.get("/mnetwork/get-user-followers")
+def get_user_communities(user: str):
+    user_information = get_user_information_by_username()
+    if not user_information:
+        raise HTTPException(status_code=404, detail="User not found.")
+    user_id = user_information["id"]
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM user_follows WHERE user_id = %s ORDER BY timestamp DESC LIMIT 50", (user_id,))
+            result = cursor.fetchall()
+
+            return {"followers": result}
+        
+@router.get("/mnetwork/get-user-following")
+def get_user_communities(user: str):
+    user_information = get_user_information_by_username()
+    if not user_information:
+        raise HTTPException(status_code=404, detail="User not found.")
+    user_id = user_information["id"]
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM user_follows WHERE author_id = %s ORDER BY timestamp DESC LIMIT 50", (user_id,))
+            result = cursor.fetchall()
+
+            return {"following": result}
