@@ -588,7 +588,7 @@ def get_user_communities(user: str):
         
 @router.get("/mnetwork/get-user-followers")
 def get_user_communities(user: str):
-    user_information = get_user_information_by_username()
+    user_information = get_user_information_by_username(user)
     if not user_information:
         raise HTTPException(status_code=404, detail="User not found.")
     user_id = user_information["id"]
@@ -601,7 +601,7 @@ def get_user_communities(user: str):
         
 @router.get("/mnetwork/get-user-following")
 def get_user_communities(user: str):
-    user_information = get_user_information_by_username()
+    user_information = get_user_information_by_username(user)
     if not user_information:
         raise HTTPException(status_code=404, detail="User not found.")
     user_id = user_information["id"]
