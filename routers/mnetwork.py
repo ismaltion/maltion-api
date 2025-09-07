@@ -192,7 +192,7 @@ def router_search_community(query: str):
         with conn.cursor() as cursor:
             cursor.execute('''SELECT * FROM communities WHERE name LIKE %s OR description LIKE %s ORDER BY last_activity DESC LIMIT 50''', (f"%{query}%", f"%{query}%"))
             result = cursor.fetchall()
-            return result
+            return { "communities": result }
         
 @router.get("/mnetwork/search-thread")
 def router_search_community(query: str):
@@ -200,15 +200,15 @@ def router_search_community(query: str):
         with conn.cursor() as cursor:
             cursor.execute('''SELECT * FROM threads WHERE title LIKE %s OR content LIKE %s ORDER BY last_activity DESC LIMIT 50''', (f"%{query}%", f"%{query}%"))
             result = cursor.fetchall()
-            return result
+            return { "threads": result }
         
 @router.get("/mnetwork/search-post")
 def router_search_community(query: str):
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT * FROM posts WHERE content LIKE %s ORDER BY last_activity DESC LIMIT 50''', (f"%{query}%",))
+            cursor.execute('''SELECT * FROM posts WHERE content LIKE %s ORDER BY timestamp DESC LIMIT 50''', (f"%{query}%",))
             result = cursor.fetchall()
-            return result
+            return { "posts": result }
         
 @router.get("/mnetwork/my-communities")
 def router_search_community(user_id = Depends(get_current_user_id)):

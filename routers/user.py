@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File
-from models import ChangeFieldRequest, ChangeDateRequest, ChangePasswordRequest
+from models import ChangeFieldRequest, ChangeDateRequest, ChangePasswordRequest, reportAbuse
 from auth import get_current_user_id, hash_password, check_password, create_session, validate_session, remove_session, remove_session_by_user_id
 from db import get_connection
 from utils import get_user_information
@@ -319,6 +319,19 @@ async def route_upload_image(user_id: int = Depends(get_current_user_id), file: 
     with open(file_location, "wb") as buffer:
         buffer.write(contents)
 
-    return {"filename": file.filename, "message": "Image uploaded successfully"}
+    return { "filename": file.filename, "message": "Image uploaded successfully" }
 
-# Other endpoints like change-nickname, change-email, upload-pfp
+@router.post("/report")
+async def report_abuse(payload: reportAbuse, user_id = Depends(get_current_user_id)):
+    module = payload.module
+    reason = payload.reason
+    content_type = payload.type
+    content_id = payload.id
+    details = payload.detail
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You must log in to do this action.")
+    with get_connection("main") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("INSERT INTO reports (parent_id, parent_module, parent_type, author_id, type, content) VALUES (%s, %s, %s, %s, %s, %s)", (content_id, module, content_type, user_id, reason, details))
+            conn.commit()
+            return { "message": "Success" }

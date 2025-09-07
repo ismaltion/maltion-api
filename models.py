@@ -72,3 +72,10 @@ class updateCommunitySettings(BaseModel):
     community_id: int
     locked: int
     can_add: int
+
+class reportAbuse(BaseModel):
+    module: str
+    reason: str
+    type: str
+    id: int
+    detail = Optional[str] = "No details provided."
