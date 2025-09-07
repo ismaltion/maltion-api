@@ -224,7 +224,7 @@ def router_search_community(query: str):
 def router_search_community(query: str):
     with get_dict_connection("main") as conn:
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT id, username, timestamp FROM users WHERE username LIKE %s ORDER BY timestamp DESC LIMIT 50''', (f"%{query}%",))
+            cursor.execute('''SELECT id, username, createdOn FROM users WHERE username LIKE %s ORDER BY timestamp DESC LIMIT 50''', (f"%{query}%",))
             result = cursor.fetchall()
             return { "users": result }
         
