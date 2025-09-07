@@ -29,6 +29,10 @@ def get_user_information(user_id, conn=None):
     return user_info
 
 def get_user_information_by_username(username, conn):
+    autoclose = False
+    if not conn:
+        conn = get_connection("main")
+        autoclose = True
     with conn.cursor() as cursor:
         cursor.execute("""
         SELECT id, username, email, displayName, birthday, createdOn, trust, banned, biography, 
@@ -49,7 +53,8 @@ def get_user_information_by_username(username, conn):
             user_info["friends"] = user_info["friends"].split(",")
         else:
             user_info["friends"] = []
-
+        if autoclose:
+            conn.close()
         return user_info
     
 def send_notification(user_id, notification, conn = None):

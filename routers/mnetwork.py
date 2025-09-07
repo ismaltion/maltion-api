@@ -92,7 +92,7 @@ def router_create_post(payload: mnetwork_create_post, user_id = Depends(get_curr
             for recipient in mentions:
                 if recipient != username:
                     notify = notification("MNetwork", f"@{username} has mentioned you in a post.", thread_id)
-                    recipient_data = get_user_information_by_username(recipient, conn)
+                    recipient_data = get_user_information_by_username(recipient)
                     if recipient_data:
                         recipient_id = recipient_data.get("id")
                         send_notification(recipient_id, notify, conn)
