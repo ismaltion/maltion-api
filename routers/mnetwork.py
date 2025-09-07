@@ -611,3 +611,39 @@ def get_user_communities(user: str):
             result = cursor.fetchall()
 
             return {"following": result}
+        
+@router.get("/mnetwork/get-user-profile")
+def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
+    user_information = get_user_information_by_username(user)
+    if not user_information:
+        raise HTTPException(status_code=404, detail="User not found")
+    user_id = user_information["id"]
+
+    # just in case
+    result1 = None
+    result2 = None
+    result3 = None
+    follower_count = 0
+
+    with get_dict_connection("main") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id, username, biography, createdOn FROM users WHERE id = %s", (user_id,))
+            result1 = cursor.fetchone()
+            if not result1:
+                raise HTTPException(status_code=404, detail="User not found.")
+
+    following = False
+
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT COUNT(*) AS cnt FROM user_follows WHERE user_id = %s''', (user_id,))
+            result2 = cursor.fetchone()
+            follower_count = result2["cnt"]
+
+            if author_id:
+                cursor.execute("SELECT id FROM user_follows WHERE author_id = %s AND user_id = %s", (author_id, user_id))
+                result3 = cursor.fetchone()
+                if result3:
+                    following = True
+
+            return { "profile": result1, "following": following, "follower_count": follower_count }
