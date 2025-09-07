@@ -28,7 +28,7 @@ def get_user_information(user_id, conn=None):
         conn.close()
     return user_info
 
-def get_user_information_by_username(username, conn):
+def get_user_information_by_username(username, conn=None):
     autoclose = False
     if not conn:
         conn = get_connection("main")
