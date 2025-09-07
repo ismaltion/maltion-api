@@ -3,9 +3,9 @@ from fastapi.responses import JSONResponse
 from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, like, transferCommunityOwnership, deleteCommunity, updateCommunitySettings
 from auth import get_current_user_id, check_password
 from db import get_connection, get_dict_connection
-from utils import get_user_information
+from utils import get_user_information, get_user_information_by_username, send_notification, notification
 from typing import Optional
-import json
+import re
 
 router = APIRouter()
 noAccMsg = "You need to login with a Maltion account to do this action."
@@ -87,6 +87,16 @@ def router_create_post(payload: mnetwork_create_post, user_id = Depends(get_curr
             else:
                 raise HTTPException(status_code=404, detail="The thread you tried to post this in was not found.")
             cursor.execute('''INSERT INTO posts (thread_id, author_id, author_name, content) VALUES (%s, %s, %s, %s)''', (thread_id, user_id, username, content))
+
+            mentions = set(re.findall(r"(?<!\w)@([A-Za-z0-9_.-]+)(?=\s|$|[.,!?:])", content))
+            for recipient in mentions:
+                if recipient != username:
+                    notify = notification("MNetwork", f"@{username} has mentioned you in a post.", thread_id)
+                    recipient_data = get_user_information_by_username(recipient)
+                    if recipient_data:
+                        recipient_id = recipient_data.get("id")
+                        send_notification(recipient_id, notify, conn)
+
             conn.commit()
         return JSONResponse(status_code=201, content={"message": "Post created successfully."})
     

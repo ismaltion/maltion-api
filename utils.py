@@ -31,7 +31,7 @@ def get_user_information(user_id, conn=None):
 def get_user_information_by_username(username, conn):
     with conn.cursor() as cursor:
         cursor.execute("""
-        SELECT username, email, displayName, birthday, createdOn, trust, banned, biography, 
+        SELECT id, username, email, displayName, birthday, createdOn, trust, banned, biography, 
                loginAttempts, lastInteraction, country, friends
         FROM users WHERE username = %s
     """, (username,))
@@ -41,7 +41,7 @@ def get_user_information_by_username(username, conn):
         if not row:
             return None
 
-        keys = ["username", "email", "displayName", "birthday", "createdOn", "trust", 
+        keys = ["id", "username", "email", "displayName", "birthday", "createdOn", "trust", 
                 "banned", "biography", "loginAttempts", "lastInteraction", "country", "friends"]
         user_info = dict(zip(keys, row))
     
