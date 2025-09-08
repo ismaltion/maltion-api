@@ -14,7 +14,9 @@ ALLOWED_ORIGINS = [
     "https://rdmedics.maltion.com",
     "http://rdmedics.maltion.com",
     "https://cheatgpt.maltion.com",
-    "http://cheatgpt.maltion.com"
+    "http://cheatgpt.maltion.com",
+    "https://cheat.maltion.com",
+    "http://cheat.maltion.com"
 ]
 
 if not os.path.exists(UPLOAD_FOLDER):
