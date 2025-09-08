@@ -16,11 +16,10 @@ class Message(BaseModel):
     parts: list[dict]
 
 class ChatRequest(BaseModel):
-    session_id: str
     prompt: str
     history: list[Message] = []
 
-@router.post("/chat")
+@router.post("/cheatgpt/chat")
 async def chat_endpoint(request: ChatRequest):
     try:
         history = request.history
