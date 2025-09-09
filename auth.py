@@ -107,7 +107,7 @@ def remove_session_by_user_id(conn, user_id):
         conn.commit()
 
 def check_mclient_password(password, hash):
-    saltedpassword = (MCLIENT_SALT, password)
+    saltedpassword = f"{MCLIENT_SALT}{password}"
     new_hash = hashlib.sha256(saltedpassword.encode()).hexdigest()
 
     return new_hash == hash
