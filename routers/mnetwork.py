@@ -642,9 +642,11 @@ def get_user_communities(user: str):
             return {"followers": result}
         
 @router.get("/mnetwork/get-user-following")
-def get_user_communities(user_id=Depends(get_current_user_id)):
-    if not user_id:
+def get_user_communities(user: str):
+    user_information = get_user_information_by_username(user)
+    if not user_information:
         raise HTTPException(status_code=404, detail="User not found.")
+    user_id = user_information["id"]
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM user_follows WHERE author_id = %s ORDER BY timestamp DESC LIMIT 50", (user_id,))
@@ -653,11 +655,9 @@ def get_user_communities(user_id=Depends(get_current_user_id)):
             return {"following": result}
         
 @router.get("/mnetwork/get-followed-communities")
-def get_followed_communities(user: str):
-    user_information = get_user_information_by_username(user)
-    if not user_information:
+def get_followed_communities(user_id=Depends(get_current_user_id)):
+    if not user_id:
         raise HTTPException(status_code=404, detail="User not found.")
-    user_id = user_information["id"]
 
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
