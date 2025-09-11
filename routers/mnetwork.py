@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings
 from auth import get_current_user_id, check_password
 from db import get_connection, get_dict_connection
 from utils import get_user_information, get_user_information_by_username, send_notification, notification
 from typing import Optional
+from config import IMAGE_UPLOAD_FOLDER
 import re
 
 router = APIRouter()
@@ -61,14 +62,20 @@ def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_
             cursor.execute('''INSERT INTO threads (community_id, author_id, author_name, title, content, locked) VALUES (%s, %s, %s, %s, %s, 0)''', (community_id, user_id, username, title, content))
             conn.commit()
         return JSONResponse(status_code=201, content={"message": "Thread created successfully."})
-    
+
 @router.post("/mnetwork/create-post")
-def router_create_post(payload: mnetwork_create_post, user_id = Depends(get_current_user_id)):
+async def router_create_post(
+    content: str = Form(...),
+    thread_id: int = Form(...),
+    image: Optional[UploadFile] = File(None),
+    user_id: int = Depends(get_current_user_id)
+):
+    has_image = 0
+    if image:
+        has_image = 1
+
     if not user_id:
         raise HTTPException(status_code=401, detail=noAccMsg)
-    
-    content = payload.content
-    thread_id = payload.thread_id
 
     with get_connection("mnetwork") as conn:
         user_info = get_user_information(user_id)
@@ -86,7 +93,28 @@ def router_create_post(payload: mnetwork_create_post, user_id = Depends(get_curr
                     raise HTTPException(status_code=401, detail="This thread is locked.")
             else:
                 raise HTTPException(status_code=404, detail="The thread you tried to post this in was not found.")
-            cursor.execute('''INSERT INTO posts (thread_id, author_id, author_name, content) VALUES (%s, %s, %s, %s)''', (thread_id, user_id, username, content))
+
+
+            cursor.execute(
+                '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image) 
+                   VALUES (%s, %s, %s, %s, %s) RETURNING id''',
+                (thread_id, user_id, username, content, has_image)
+            )
+            post_id = cursor.fetchone()[0]
+
+
+            if image:
+
+                file_location = f"{IMAGE_UPLOAD_FOLDER}/{post_id}.jpg"
+                with open(file_location, "wb") as f:
+                    f.write(await image.read())
+
+
+                cursor.execute(
+                    '''UPDATE posts SET image_path = %s WHERE id = %s''',
+                    (file_location, post_id)
+                )
+
 
             mentions = set(re.findall(r"(?<!\w)@([A-Za-z0-9_.-]+)(?=\s|$|[.,!?:])", content))
             for recipient in mentions:
@@ -98,7 +126,9 @@ def router_create_post(payload: mnetwork_create_post, user_id = Depends(get_curr
                         send_notification(recipient_id, notify)
 
             conn.commit()
+
         return JSONResponse(status_code=201, content={"message": "Post created successfully."})
+
     
 # should work even if not logged in
 @router.get("/mnetwork/get-community")
@@ -177,7 +207,7 @@ def router_get_community_threads(community: int):
 def router_get_thread_posts(thread: int, user_id = Depends(get_current_user_id)):
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT * FROM posts WHERE thread_id = %s LIMIT 50''', (thread,))
+            cursor.execute('''SELECT * FROM posts WHERE thread_id = %s ORDER BY timestamp DESC LIMIT 50''', (thread,))
             posts = cursor.fetchall()
 
             liked_post_ids = set()

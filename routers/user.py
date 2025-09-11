@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File
+from fastapi.responses import JSONResponse
 from models import ChangeFieldRequest, ChangeDateRequest, ChangePasswordRequest, reportAbuse
 from auth import get_current_user_id, hash_password, check_password, create_session, validate_session, remove_session, remove_session_by_user_id, check_mclient_password
 from db import get_connection, get_dict_connection
@@ -9,6 +10,7 @@ from config import UPLOAD_FOLDER, MAX_FILE_SIZE
 import os
 import json
 import re
+import traceback
 
 USERNAME_REGEX = r'^[a-zA-Z0-9_-]+$'
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -75,18 +77,15 @@ def mclient_migration(
 
     # start of extensive checks
     if len(username) < 4 or len(username) > 20:
-        raise HTTPException(status_code=400, detail="Username must be between 4 and 20 characters long, with no spaces.")
+        return JSONResponse(status_code=400, content={"detail": "Username must be between 4 and 20 characters long."})
     if not re.match(USERNAME_REGEX, username, re.IGNORECASE):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid username. Only letters, numbers, hyphens, and underscores are allowed."
-        )
+        return JSONResponse(status_code=400, content={"detail": "Invalid username. Only letters, numbers and hyphens are allowed."})
     if len(password) < 6 or len(password) > 64:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long with a limit of 64 characters.")
+        return JSONResponse(status_code=400, content={"detail": "Password must be between 6 and 64 characters long."})
     if len(displayName) < 4 or len(displayName) > 20:
         displayName = username
     if len(country) < 3 or len(country) > 32:
-        raise HTTPException(status_code=400, detail="Country must be between 3 and 32 characters long.")
+        return JSONResponse(status_code=400, content={"detail": "Country must be between 3 and 32 characters long."})
     # end of extensive checks    
 
     # start of getting information from mclient database
@@ -96,24 +95,21 @@ def mclient_migration(
                 cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
                 result = cursor.fetchone()
                 if not result:
-                    raise HTTPException(status_code=404, detail="MClient account not found.")
+                    return JSONResponse(status_code=404, content={"detail": "MClient account not found."})
                 
                 login_attempts = result["loginattempts"]
                 if login_attempts > 5:
-                    raise HTTPException(status_code=401, detail="This account has been temporally locked for multiple failed login attempts.")
+                    return JSONResponse(status_code=403, content={"detail": "This account has been temporally disabled for multiple failed attempts."})
 
                 mclient_hash = result["password"]
                 if not check_mclient_password(password, mclient_hash):
                     cursor.execute("UPDATE users SET loginattempts = %s WHERE username = %s", (login_attempts + 1, username))
                     conn.commit()
-                    raise HTTPException(status_code=401, detail="Incorrect password.")
+                    return JSONResponse(status_code=403, content={"detail": "Incorrect password."})
 
                 email = result["email"]
-                biography = result["biography"]
+                biography = result["description"]
                 migrated = result["migrated"]
-
-                if migrated == 1:
-                    raise HTTPException(status_code=400, detail="This MClient account was already migrated. You can use it right now in the new services.")
 
                 if biography == "":
                     biography = "No biography added."
@@ -122,7 +118,7 @@ def mclient_migration(
                     email = "null@null"
                     issue_flag = True
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Internal server error. Details: Failed on step 1/4 (Checking information): {e}")
+                return JSONResponse(status_code=500, content={"detail": f"Internal server error. Details: Failed on step 1/4 (Checking information): {e}"})
 
     # end of getting information from mclient database
 
@@ -133,12 +129,12 @@ def mclient_migration(
                 result = cursor.fetchone()
                 hashed = hash_password(password)
                 if result:
-                    mclient_reserved = result[1]
-                    new_account_id = result[0]
+                    mclient_reserved = result["mclient_reserved"]
+                    new_account_id = result["id"]
                     if mclient_reserved == 1:
                         cursor.execute("UPDATE users SET password = %s, email = %s, displayName = %s, birthday = %s, createdOn = NOW(), biography = %s, loginAttempts = 0, lastInteraction = NOW(), country = %s WHERE username = %s", (hashed, email, displayName, birthday, biography, country, username))
                     else:
-                        raise HTTPException(status_code=401, detail="There's an already registered account with your username which isn't yours. You will need to change your username to migrate your account, which requires the assistance of support.")
+                        return JSONResponse(status_code=401, content={"detail": "There's an already registered account with your username which isn't yours. You will need to change your username to migrate your account, which requires the assistance of support."})
                 else:
                     cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, country) VALUES (%s, %s, %s, %s, %s, NOW(), %s, 0, NOW(), %s)", (username, hashed, email, displayName, birthday, biography, country))
                     new_account_id = cursor.lastrowid
@@ -146,7 +142,7 @@ def mclient_migration(
                 conn.commit()
             except Exception as e:
                 conn.rollback()
-                raise HTTPException(status_code=500, detail=f"Internal server error. Details: Failed on step 2/4 (Transferring account): {e}")
+                return JSONResponse(status_code=500, content={"detail": f"Internal server error. Details: Failed on step 2/4 (Transferring account): {e} {traceback.format_exc()}"})
     
     if new_account_id:
          with get_connection("mnetwork") as conn:
@@ -157,7 +153,7 @@ def mclient_migration(
                     conn.commit()
                 except Exception as e:
                     conn.rollback()
-                    raise HTTPException(status_code=500, detail=f"Internal server error. Details: Failed on step 3/4 (Migrating MNetwork ownerships - Your account was migrated, though, but you can try to migrate it again to solve this issue.): {e}")
+                    return JSONResponse(status_code=500, content={"detail": f"Internal server error. Details: Failed on step 3/4 (Migrating MNetwork ownerships - Your account was migrated, though, but you can try to migrate it again to solve this issue.): {e} {traceback.format_exc()}"})
 
     with get_connection("mclient") as conn:
         with conn.cursor() as cursor:
@@ -167,7 +163,7 @@ def mclient_migration(
                 conn.commit()
             except Exception as e:
                 conn.rollback()
-                raise HTTPException(status_code=500, detail=f"Internal server error. Details: {e}")
+                return JSONResponse(status_code=500, content={"detail": f"Internal server error. Details: {e}"})
     
     return {"message": "User migrated successfully."}
 
@@ -182,8 +178,8 @@ def route_login_user(username: str = Body(...), password: str = Body(...)):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
 
             user_id, hashed, mclient_reserved = user
-            if mclient_reserved == 1:
-                raise HTTPException(status_code=401, detail="This account is an MClient account. Please migrate it first through mclient.maltion.com to use it here.")
+            #if mclient_reserved == 1:
+                #raise HTTPException(status_code=401, detail="This account is an MClient account. Please migrate it first through mclient.maltion.com to use it here.")
             
             if not check_password(password, hashed):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
