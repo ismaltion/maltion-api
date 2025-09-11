@@ -366,6 +366,24 @@ def route_changeEmail(payload: ChangeFieldRequest, user_id: int = Depends(get_cu
     
     return Response(status_code=200)
 
+@router.post("/change-biography")
+def route_changeBiography(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
+    with get_connection() as conn:
+        user_info = get_user_information(user_id, conn)
+        newValue = payload.value
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found - You need to login first.")
+        
+        newBiography = str(newValue)
+        if len(newBiography) < 5 or len(newBiography) > 1000:
+            raise HTTPException(status_code=400, detail="Too long biography")
+        
+        with conn.cursor() as cursor:
+            cursor.execute('''UPDATE users SET biography = %s WHERE id = %s''', (newValue, user_id))
+            conn.commit()
+    
+    return Response(status_code=200)
+
 @router.post("/change-password")
 def route_changePassword(payload: ChangePasswordRequest, user_id: int = Depends(get_current_user_id)):
     with get_connection() as conn:
