@@ -6,7 +6,12 @@ from db import get_connection, get_dict_connection
 from utils import get_user_information, get_user_information_by_username, send_notification, notification
 from typing import Optional
 from config import IMAGE_UPLOAD_FOLDER
+from PIL import Image
 import re
+import os
+import io
+
+MAX_UPLOAD_SIZE = 1024 * 1024
 
 router = APIRouter()
 noAccMsg = "You need to login with a Maltion account to do this action."
@@ -79,7 +84,6 @@ async def router_create_post(
 
     with get_connection("mnetwork") as conn:
         user_info = get_user_information(user_id)
-
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
         
@@ -94,7 +98,6 @@ async def router_create_post(
             else:
                 raise HTTPException(status_code=404, detail="The thread you tried to post this in was not found.")
 
-
             cursor.execute(
                 '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image) 
                    VALUES (%s, %s, %s, %s, %s) RETURNING id''',
@@ -102,19 +105,28 @@ async def router_create_post(
             )
             post_id = cursor.fetchone()[0]
 
-
             if image:
+                image_bytes = await image.read()
+                if len(image_bytes) > MAX_UPLOAD_SIZE       :
+                    raise HTTPException(status_code=413, detail="Image size exceeds 5 MB limit.")
 
-                file_location = f"{IMAGE_UPLOAD_FOLDER}/{post_id}.jpg"
-                with open(file_location, "wb") as f:
-                    f.write(await image.read())
+                try:
+                    img = Image.open(io.BytesIO(image_bytes))
 
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
 
-                cursor.execute(
-                    '''UPDATE posts SET image_path = %s WHERE id = %s''',
-                    (file_location, post_id)
-                )
+                    max_size = 2000
+                    if img.width > max_size or img.height > max_size:
+                        img.thumbnail((max_size, max_size), Image.ANTIALIAS)
 
+                    os.makedirs(IMAGE_UPLOAD_FOLDER, exist_ok=True)
+                    file_location = f"{IMAGE_UPLOAD_FOLDER}/{post_id}.jpg"
+
+                    img.save(file_location, format="JPEG", quality=80, optimize=True)
+
+                except Exception as e:
+                    raise HTTPException(status_code=400, detail=f"Image processing failed: {str(e)}")
 
             mentions = set(re.findall(r"(?<!\w)@([A-Za-z0-9_.-]+)(?=\s|$|[.,!?:])", content))
             for recipient in mentions:
@@ -638,6 +650,27 @@ def get_user_communities(user: str):
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM user_follows WHERE author_id = %s ORDER BY timestamp DESC LIMIT 50", (user_id,))
+            result = cursor.fetchall()
+
+            return {"following": result}
+        
+@router.get("/mnetwork/get-followed-communities")
+def get_followed_communities(user: str):
+    user_information = get_user_information_by_username(user)
+    if not user_information:
+        raise HTTPException(status_code=404, detail="User not found.")
+    user_id = user_information["id"]
+
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+                SELECT cf.community_id, c.name, cf.timestamp
+                FROM community_follows cf
+                JOIN communities c ON cf.community_id = c.id
+                WHERE cf.author_id = %s
+                ORDER BY cf.timestamp DESC
+                LIMIT 50
+            ''', (user_id,))
             result = cursor.fetchall()
 
             return {"following": result}
