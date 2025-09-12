@@ -197,6 +197,9 @@ def router_get_thread(thread: int, user_id = Depends(get_current_user_id)):
         with conn.cursor() as cursor:
             cursor.execute('''SELECT * FROM threads WHERE id = %s LIMIT 1''', (thread,))
             result = cursor.fetchone()
+            community_id = result["community_id"]
+            cursor.execute('''SELECT * FROM communities WHERE id = %s LIMIT 1''', (community_id))
+            community_result = cursor.fetchone()
             if result:
                 if user_id:
                     cursor.execute('''SELECT id FROM thread_likes WHERE thread_id = %s AND author_id = %s LIMIT 1''', (thread, user_id))
@@ -205,7 +208,7 @@ def router_get_thread(thread: int, user_id = Depends(get_current_user_id)):
             else:
                 raise HTTPException(status_code=404, detail="Thread not found.")
     
-    return {"thread": result, "liked": liked}
+    return {"thread": result, "community": community_result, "liked": liked}
 
 @router.get("/mnetwork/get-community-threads")
 def router_get_community_threads(community: int):
