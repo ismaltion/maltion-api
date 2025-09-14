@@ -121,6 +121,8 @@ async def router_create_post(
                 (thread_id, user_id, username, content, has_image)
             )
             post_id = cursor.fetchone()[0]
+            cursor.execute('''UPDATE threads SET activity_detail = %s WHERE id = %s''', (f"{username} added a post.", thread_id))
+            cursor.execute('''UPDATE threads SET last_activity = NOW() WHERE id = %s''', thread_id)
             cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} created a post in the thread: {title}", comm_id))
             cursor.execute('''UPDATE communities SET last_activity = NOW() WHERE id = %s''', comm_id)
             
