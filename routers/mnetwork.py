@@ -120,9 +120,10 @@ async def router_create_post(
                    VALUES (%s, %s, %s, %s, %s) RETURNING id''',
                 (thread_id, user_id, username, content, has_image)
             )
+            post_id = cursor.fetchone()[0]
             cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} created a post in the thread: {title}", comm_id))
             cursor.execute('''UPDATE communities SET last_activity = NOW() WHERE id = %s''', comm_id)
-            post_id = cursor.fetchone()[0]
+            
 
             if image:
                 image_bytes = await image.read()
