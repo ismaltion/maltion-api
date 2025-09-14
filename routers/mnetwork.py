@@ -67,6 +67,7 @@ def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_
                 
                 cursor.execute('''INSERT INTO threads (community_id, author_id, author_name, title, content, locked) VALUES (%s, %s, %s, %s, %s, 0)''', (community_id, user_id, username, title, content))
                 cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} created a new thread: {title}", comm_id))
+                cursor.execute('''UPDATE communities SET last_activity = NOW() WHERE id = %s''', comm_id)
                 conn.commit()
             else:
                 raise HTTPException(status_code=404, detail="The community you tried to post this thread in was not found.")
@@ -120,6 +121,7 @@ async def router_create_post(
                 (thread_id, user_id, username, content, has_image)
             )
             cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} created a post in the thread: {title}", comm_id))
+            cursor.execute('''UPDATE communities SET last_activity = NOW() WHERE id = %s''', comm_id)
             post_id = cursor.fetchone()[0]
 
             if image:
