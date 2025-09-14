@@ -55,17 +55,22 @@ def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_
         username = user_info.get("username")
 
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT locked, can_add FROM communities WHERE id = %s''', (community_id,))
+            cursor.execute('''SELECT locked, can_add, id FROM communities WHERE id = %s''', (community_id,))
             result = cursor.fetchone()
             if result:
                 if result[0] == 1:
                     raise HTTPException(status_code=401, detail="This community is locked.")
                 if result[1] == 0:
                     raise HTTPException(status_code=401, detail="This community doesn't allow the creation of threads.")
+                
+                comm_id = result[2]
+                
+                cursor.execute('''INSERT INTO threads (community_id, author_id, author_name, title, content, locked) VALUES (%s, %s, %s, %s, %s, 0)''', (community_id, user_id, username, title, content))
+                cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} created a new thread: {title}", comm_id))
+                conn.commit()
             else:
                 raise HTTPException(status_code=404, detail="The community you tried to post this thread in was not found.")
-            cursor.execute('''INSERT INTO threads (community_id, author_id, author_name, title, content, locked) VALUES (%s, %s, %s, %s, %s, 0)''', (community_id, user_id, username, title, content))
-            conn.commit()
+            
         return JSONResponse(status_code=201, content={"message": "Thread created successfully."})
 
 @router.post("/mnetwork/create-post")
@@ -90,19 +95,31 @@ async def router_create_post(
         username = user_info.get("username")
 
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT locked FROM threads WHERE id = %s''', (thread_id,))
+            cursor.execute('''SELECT locked, community_id, title FROM threads WHERE id = %s''', (thread_id,))
             result = cursor.fetchone()
             if result:
                 if result[0] == 1:
                     raise HTTPException(status_code=401, detail="This thread is locked.")
             else:
                 raise HTTPException(status_code=404, detail="The thread you tried to post this in was not found.")
+            
+            comm_id = result[1]
+            title = result[2]
+
+            cursor.execute('''SELECT id, locked FROM communities WHERE id = %s''', (comm_id,))
+            result = cursor.fetchone()
+            if result:
+                if result[1] == 1:
+                    raise HTTPException(status_code=401, detail="This community is locked.")
+            else:
+                raise HTTPException(status_code=404, detail="The community you tried to post this in was not found.")
 
             cursor.execute(
                 '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image) 
                    VALUES (%s, %s, %s, %s, %s) RETURNING id''',
                 (thread_id, user_id, username, content, has_image)
             )
+            cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} created a post in the thread: {title}", comm_id))
             post_id = cursor.fetchone()[0]
 
             if image:
