@@ -79,7 +79,8 @@ async def router_create_post(
     content: str = Form(...),
     thread_id: int = Form(...),
     image: Optional[UploadFile] = File(None),
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    parent_post_id: Optional[int] = Form(None)
 ):
     has_image = 0
     if image:
@@ -114,17 +115,28 @@ async def router_create_post(
                     raise HTTPException(status_code=401, detail="This community is locked.")
             else:
                 raise HTTPException(status_code=404, detail="The community you tried to post this in was not found.")
+            
+            if parent_post_id:
+                cursor.execute('''SELECT id, parent_post_id FROM posts WHERE id = %s''', (parent_post_id,))
+                result = cursor.fetchone()
+
+                if result:
+                    parent_post_id = result["parent_post_id"]
+                    if parent_post_id and parent_post_id != 0:
+                        raise HTTPException(status_code=400, detail="You cannot nest your post under a nested post.")
+                else:
+                    raise HTTPException(status_code=404, detail="The parent post was not found.")
 
             cursor.execute(
-                '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image) 
-                   VALUES (%s, %s, %s, %s, %s) RETURNING id''',
-                (thread_id, user_id, username, content, has_image)
+                '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image, parent_post_id) 
+                   VALUES (%s, %s, %s, %s, %s, %s) RETURNING id''',
+                (thread_id, user_id, username, content, has_image, parent_post_id)
             )
             post_id = cursor.fetchone()[0]
-            cursor.execute('''UPDATE threads SET activity_detail = %s WHERE id = %s''', (f"{username} added a post.", thread_id))
-            cursor.execute('''UPDATE threads SET last_activity = NOW() WHERE id = %s''', thread_id)
-            cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} posted in thread: {title}", comm_id))
-            cursor.execute('''UPDATE communities SET last_activity = NOW() WHERE id = %s''', comm_id)
+            cursor.execute('''UPDATE threads SET activity_detail = %s WHERE id = %s''', (f"{username} added a post.", thread_id,))
+            cursor.execute('''UPDATE threads SET last_activity = NOW() WHERE id = %s''', (thread_id,))
+            cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} posted in thread: {title}", comm_id,))
+            cursor.execute('''UPDATE communities SET last_activity = NOW() WHERE id = %s''', (comm_id,))
             
 
             if image:
