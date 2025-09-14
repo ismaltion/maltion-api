@@ -78,9 +78,9 @@ def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_
 async def router_create_post(
     content: str = Form(...),
     thread_id: int = Form(...),
+    parent_post_id: int = Form(...),
     image: Optional[UploadFile] = File(None),
-    user_id: int = Depends(get_current_user_id),
-    parent_post_id: int = Form(...)
+    user_id: int = Depends(get_current_user_id)
 ):
     has_image = 0
     if image:
@@ -116,16 +116,14 @@ async def router_create_post(
             else:
                 raise HTTPException(status_code=404, detail="The community you tried to post this in was not found.")
             
-            if parent_post_id:
-                cursor.execute('''SELECT parent_post_id FROM posts WHERE id = %s''', (parent_post_id,))
-                result = cursor.fetchone()
+            cursor.execute('''SELECT parent_post_id FROM posts WHERE id = %s''', (parent_post_id,))
+            result = cursor.fetchone()
 
-                if result:
-                    parent_post_id = result[0]
-                    if parent_post_id > 0:
-                        raise HTTPException(status_code=400, detail="You cannot nest your post under a nested post.")
-                else:
-                    raise HTTPException(status_code=404, detail="The parent post was not found.")
+            if result:
+                if result[0] > 0:
+                    raise HTTPException(status_code=400, detail="You cannot nest your post under a nested post.")
+            else:
+                raise HTTPException(status_code=404, detail="The parent post was not found.")
 
             cursor.execute(
                 '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image, parent_post_id) 
