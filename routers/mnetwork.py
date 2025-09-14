@@ -121,7 +121,7 @@ async def router_create_post(
                 result = cursor.fetchone()
 
                 if result:
-                    parent_post_id = result[1]
+                    parent_post_id = result[0]
                     if parent_post_id and parent_post_id != 0:
                         raise HTTPException(status_code=400, detail="You cannot nest your post under a nested post.")
                 else:
