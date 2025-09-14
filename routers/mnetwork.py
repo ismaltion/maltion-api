@@ -117,11 +117,11 @@ async def router_create_post(
                 raise HTTPException(status_code=404, detail="The community you tried to post this in was not found.")
             
             if parent_post_id:
-                cursor.execute('''SELECT id, parent_post_id FROM posts WHERE id = %s''', (parent_post_id,))
+                cursor.execute('''SELECT parent_post_id FROM posts WHERE id = %s''', (parent_post_id,))
                 result = cursor.fetchone()
 
                 if result:
-                    parent_post_id = result["parent_post_id"]
+                    parent_post_id = result[1]
                     if parent_post_id and parent_post_id != 0:
                         raise HTTPException(status_code=400, detail="You cannot nest your post under a nested post.")
                 else:
