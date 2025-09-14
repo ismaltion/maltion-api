@@ -80,7 +80,7 @@ async def router_create_post(
     thread_id: int = Form(...),
     image: Optional[UploadFile] = File(None),
     user_id: int = Depends(get_current_user_id),
-    parent_post_id: Optional[int] = Form(None)
+    parent_post_id: int = Form(...)
 ):
     has_image = 0
     if image:
@@ -122,7 +122,7 @@ async def router_create_post(
 
                 if result:
                     parent_post_id = result[0]
-                    if parent_post_id and parent_post_id != 0:
+                    if parent_post_id > 0:
                         raise HTTPException(status_code=400, detail="You cannot nest your post under a nested post.")
                 else:
                     raise HTTPException(status_code=404, detail="The parent post was not found.")
