@@ -285,15 +285,25 @@ def router_search_community(query: str):
             return { "posts": result }
         
 @router.get("/mnetwork/search-users")
-def router_search_community(query: str):
+def router_search_users(query: str):
     with get_dict_connection("main") as conn:
         with conn.cursor() as cursor:
             cursor.execute('''SELECT id, username, createdOn FROM users WHERE username LIKE %s ORDER BY createdOn DESC LIMIT 50''', (f"%{query}%",))
             result = cursor.fetchall()
             return { "users": result }
         
+@router.get("/mnetwork/featured-communities")
+def router_featured_communities():
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''SELECT * FROM communities WHERE id IN (3, 4, 5) LIMIT 50''')
+            result = cursor.fetchall()
+            return result
+        
 @router.get("/mnetwork/my-communities")
-def router_search_community(user_id = Depends(get_current_user_id)):
+def router_my_communities(user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
             cursor.execute('''SELECT * FROM communities WHERE author_id = %s LIMIT 50''', (user_id,))
