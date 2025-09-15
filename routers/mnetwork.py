@@ -333,7 +333,7 @@ def router_mnetwork_like_post(payload: follow, user_id = Depends(get_current_use
     if not user_id:
         raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
     
-    user_info = get_user_information(user_info)
+    user_info = get_user_information(user_id)
     username = user_info["username"]
     with get_dict_connection("mnetwork") as conn:
         recipient = payload.user
