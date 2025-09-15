@@ -64,11 +64,11 @@ def send_notification(user_id, notification, conn = None):
         autoclose = True
     
     with conn.cursor() as cursor:
-        cursor.execute("INSERT INTO notifications (user_id, type, content, reference_id) VALUES (%s, %s, %s, %s)", (user_id, notification.get("type"), notification.get("content"), notification.get("reference_id")))
+        cursor.execute("INSERT INTO notifications (user_id, type, content, reference_id, reference_type) VALUES (%s, %s, %s, %s, %s)", (user_id, notification.get("type"), notification.get("content"), notification.get("reference_id"), notification.get("reference_type")))
         conn.commit()
 
     if autoclose:
         conn.close()
 
-def notification(type, content, reference_id):
-    return { "type": type, "content": content, "reference_id": reference_id}
+def notification(type, content, reference_id, reference_type):
+    return { "type": type, "content": content, "reference_id": reference_id, "reference_type": reference_type}

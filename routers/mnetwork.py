@@ -164,7 +164,10 @@ async def router_create_post(
             mentions = set(re.findall(r"(?<!\w)@([A-Za-z0-9_.-]+)(?=\s|$|[.,!?:])", content))
             for recipient in mentions:
                 if recipient != username:
-                    notify = notification("MNetwork", f"@{username} has mentioned you in a post.", thread_id)
+                    if parent_post_id == 0:
+                        notify = notification("MNetwork", f"@{username} has mentioned you in a post.", thread_id, "post_mention")
+                    else:
+                        notify = notification("MNetwork", f"@{username} has replied to you in a post.", thread_id, "post_reply")
                     recipient_data = get_user_information_by_username(recipient)
                     if recipient_data:
                         recipient_id = recipient_data.get("id")
@@ -327,6 +330,9 @@ def router_my_communities(user_id = Depends(get_current_user_id)):
 def router_mnetwork_like_post(payload: follow, user_id = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    
+    user_info = get_user_information(user_info)
+    username = user_info["username"]
     with get_dict_connection("mnetwork") as conn:
         recipient = payload.user
         with conn.cursor() as cursor:
@@ -340,6 +346,8 @@ def router_mnetwork_like_post(payload: follow, user_id = Depends(get_current_use
                 else:
                     cursor.execute('''INSERT INTO user_follows (user_id, author_id) VALUES (%s, %s)''', (recipient_id, user_id))
                     conn.commit()
+                    notify = notification("MNetwork", f"@{username} is now following you.", username, "user_follow")
+                    send_notification(notify)
                     return JSONResponse(status_code=200, content={"message": "User followed successfully."})
             else:
                 raise HTTPException(status_code=404, detail="The user you attempted to follow was not found.")
