@@ -108,7 +108,7 @@ async def router_create_post(
             comm_id = result[1]
             title = result[2]
 
-            cursor.execute('''SELECT id, locked FROM communities WHERE id = %s''', (comm_id,))
+            cursor.execute('''SELECT id, locked, name FROM communities WHERE id = %s''', (comm_id,))
             result = cursor.fetchone()
             if result:
                 if result[1] == 1:
@@ -116,6 +116,8 @@ async def router_create_post(
             else:
                 raise HTTPException(status_code=404, detail="The community you tried to post this in was not found.")
             
+            community_name = result[2]
+
             cursor.execute('''SELECT parent_post_id FROM posts WHERE id = %s''', (parent_post_id,))
             result = cursor.fetchone()
 
@@ -165,9 +167,9 @@ async def router_create_post(
             for recipient in mentions:
                 if recipient != username:
                     if parent_post_id == 0:
-                        notify = notification("MNetwork", f"@{username} has mentioned you in a post.", thread_id, "post_mention")
+                        notify = notification("MNetwork", f"@{username} mentioned you in {title} of {community_name}", thread_id, "post_mention")
                     else:
-                        notify = notification("MNetwork", f"@{username} has replied to you in a post.", thread_id, "post_reply")
+                        notify = notification("MNetwork", f"@{username} replied to you in {title} of {community_name}", thread_id, "post_reply")
                     recipient_data = get_user_information_by_username(recipient)
                     if recipient_data:
                         recipient_id = recipient_data.get("id")
