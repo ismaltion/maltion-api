@@ -76,8 +76,8 @@ def mclient_migration(
     issue_flag = False
 
     # start of extensive checks
-    if len(username) < 4 or len(username) > 20:
-        return JSONResponse(status_code=400, content={"detail": "Username must be between 4 and 20 characters long."})
+    if len(username) < 32 or len(username) > 60:
+        return JSONResponse(status_code=400, content={"detail": "Username must be between 3 and 60 characters long."})
     if not re.match(USERNAME_REGEX, username, re.IGNORECASE):
         return JSONResponse(status_code=400, content={"detail": "Invalid username. Only letters, numbers and hyphens are allowed."})
     if len(password) < 6 or len(password) > 64:
