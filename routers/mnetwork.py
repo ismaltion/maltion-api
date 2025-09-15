@@ -123,7 +123,8 @@ async def router_create_post(
                 if result[0] > 0:
                     raise HTTPException(status_code=400, detail="You cannot nest your post under a nested post.")
             else:
-                raise HTTPException(status_code=404, detail="The parent post was not found.")
+                if parent_post_id > 0:
+                    raise HTTPException(status_code=404, detail="The parent post was not found.")
 
             cursor.execute(
                 '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image, parent_post_id) 
@@ -200,7 +201,6 @@ def router_get_community(community: int, user_id = Depends(get_current_user_id))
 
 @router.post("/mnetwork/update-community-settings")
 def router_update_community_settings(payload: updateCommunitySettings, user_id = Depends(get_current_user_id)):
-
     community_id = payload.community_id
     locked = payload.locked
     can_add = payload.can_add
@@ -282,7 +282,7 @@ def router_search_community(query: str):
             return { "communities": result }
         
 @router.get("/mnetwork/search-thread")
-def router_search_community(query: str):
+def router_search_thread(query: str):
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
             cursor.execute('''SELECT * FROM threads WHERE title LIKE %s OR content LIKE %s ORDER BY last_activity DESC LIMIT 50''', (f"%{query}%", f"%{query}%"))
@@ -290,7 +290,7 @@ def router_search_community(query: str):
             return { "threads": result }
         
 @router.get("/mnetwork/search-post")
-def router_search_community(query: str):
+def router_search_post(query: str):
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
             cursor.execute('''SELECT * FROM posts WHERE content LIKE %s ORDER BY timestamp DESC LIMIT 50''', (f"%{query}%",))
