@@ -491,7 +491,7 @@ def get_notifications_preview(user_id = Depends(get_current_user_id)):
     
     with get_dict_connection("main") as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id = %s AND is_read = 0")
+            cursor.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id = %s AND is_read = 0", (user_id,))
             result = cursor.fetchone()
             
             notification_count = result["cnt"]
