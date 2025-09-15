@@ -349,7 +349,7 @@ def router_mnetwork_like_post(payload: follow, user_id = Depends(get_current_use
                     cursor.execute('''INSERT INTO user_follows (user_id, author_id) VALUES (%s, %s)''', (recipient_id, user_id))
                     conn.commit()
                     notify = notification("MNetwork", f"@{username} is now following you.", username, "user_follow")
-                    send_notification(notify)
+                    send_notification(recipient_id, notify)
                     return JSONResponse(status_code=200, content={"message": "User followed successfully."})
             else:
                 raise HTTPException(status_code=404, detail="The user you attempted to follow was not found.")
