@@ -11,7 +11,7 @@ import re
 import os
 import io
 
-MAX_UPLOAD_SIZE = 1024 * 1024
+MAX_UPLOAD_SIZE = 1024 * 1024 * 5
 
 router = APIRouter()
 noAccMsg = "You need to login with a Maltion account to do this action."
@@ -142,7 +142,7 @@ async def router_create_post(
 
             if image:
                 image_bytes = await image.read()
-                if len(image_bytes) > MAX_UPLOAD_SIZE       :
+                if len(image_bytes) > MAX_UPLOAD_SIZE:
                     raise HTTPException(status_code=413, detail="Image size exceeds 5 MB limit.")
 
                 try:
