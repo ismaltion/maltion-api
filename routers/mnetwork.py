@@ -921,6 +921,6 @@ def router_update_community_description(payload: editThread, user_id = Depends(g
             if not user_id == author_id:
                 raise HTTPException(status_code=403, detail="You need to be the owner of the thread to do this operation.")
             
-            cursor.execute("UPDATE threads SET description = %s WHERE id = %s", (value, thread_id))
+            cursor.execute("UPDATE threads SET content = %s WHERE id = %s", (value, thread_id))
             conn.commit()
             return { "message": "Description updated successfully" }
