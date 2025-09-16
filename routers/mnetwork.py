@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File, UploadFile, Form
 from fastapi.responses import JSONResponse
-from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings
+from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, editCommunity, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings
 from auth import get_current_user_id, check_password
 from db import get_connection, get_dict_connection
 from utils import get_user_information, get_user_information_by_username, send_notification, notification
@@ -866,3 +866,25 @@ def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
                     following = True
 
             return { "profile": result1, "following": following, "follower_count": follower_count }
+        
+@router.post("/mnetwork/update-community-description")
+def router_update_community_description(payload: editCommunity, user_id = Depends(get_current_user_id)):
+    community_id = payload.community_id
+    value = payload.value
+
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT author_id FROM communities WHERE id = %s", (community_id,))
+            result = cursor.fetchone()
+            
+            if not result:
+                raise HTTPException(status_code=404, detail="Community not found.")
+            
+            author_id = result["author_id"]
+
+            if not user_id == author_id:
+                raise HTTPException(status_code=403, detail="You need to be the owner of the community to do this operation.")
+            
+            cursor.execute("UPDATE communities SET description = %s, WHERE id = %s", (value, community_id))
+            conn.commit()
+            return { "message": "Description updated successfully" }

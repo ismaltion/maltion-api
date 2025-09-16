@@ -85,3 +85,7 @@ class reportAbuse(BaseModel):
     type: str
     id: int
     detail: Optional[str] = "No details provided."
+
+class editCommunity(BaseModel):
+    community_id: int
+    value: str
