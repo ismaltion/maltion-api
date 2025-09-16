@@ -71,6 +71,9 @@ class deleteCommunity(BaseModel):
     community_id: int
     password: str
 
+class threadOperation(BaseModel):
+    thread_id: int
+
 class updateCommunitySettings(BaseModel):
     community_id: int
     locked: int

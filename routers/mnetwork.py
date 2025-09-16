@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File, UploadFile, Form
 from fastapi.responses import JSONResponse
-from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings
+from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings
 from auth import get_current_user_id, check_password
 from db import get_connection, get_dict_connection
 from utils import get_user_information, get_user_information_by_username, send_notification, notification
@@ -610,6 +610,9 @@ def transfer_community_ownership(payload: transferCommunityOwnership, user_id = 
 
 @router.post("/mnetwork/delete-community")
 def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_id)):
+    if not user_id:
+        return JSONResponse(status_code=401, content={"detail": "Login required."})
+    
     community_id = payload.community_id
     password = payload.password
 
@@ -617,9 +620,6 @@ def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_
         try:
             conn.autocommit = False
             with conn.cursor() as cursor:
-                if not user_id:
-                    return JSONResponse(status_code=401, content={"detail": "Login required."})
-
                 cursor.execute("SELECT author_id FROM communities WHERE id = %s LIMIT 1", (community_id,))
                 result = cursor.fetchone()
 
@@ -647,10 +647,104 @@ def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_
                             return JSONResponse(status_code=401, content={"detail": "Incorrect password."})
 
                 cursor.execute("DELETE FROM communities WHERE id = %s", (community_id,))
+                cursor.execute("DELETE FROM threads WHERE community_id = %s", (community_id,))
                 conn.commit()
 
                 return {"message": "Community successfully deleted."}
 
+        except Exception as e:
+            conn.rollback()
+            print("Error: " + str(e))
+            raise HTTPException(status_code=500, detail="Operation failed.")
+        
+def get_thread_and_check_permission(thread_id, user_id, conn):
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT author_id, community_id FROM threads WHERE id = %s LIMIT 1", (thread_id,))
+        thread = cursor.fetchone()
+        if not thread:
+            raise HTTPException(status_code=404, detail="Thread not found.")
+
+        cursor.execute("SELECT author_id FROM communities WHERE id = %s LIMIT 1", (thread["community_id"],))
+        community = cursor.fetchone()
+        if not community:
+            raise HTTPException(status_code=404, detail="Community not found.")
+
+        if thread["author_id"] != user_id and community["author_id"] != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You must be the author of this thread or owner of community to perform this action."
+            )
+
+        return thread
+
+@router.post("/mnetwork/delete-thread")
+def delete_thread(payload: threadOperation, user_id=Depends(get_current_user_id)):
+    if not user_id:
+        return JSONResponse(status_code=401, content={"detail": "Login required."})
+
+    thread_id = payload.thread_id
+    with get_dict_connection("mnetwork") as conn:
+        try:
+            conn.autocommit = False
+            thread = get_thread_and_check_permission(thread_id, user_id, conn)
+
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM posts WHERE thread_id = %s", (thread_id,))
+                cursor.execute("DELETE FROM threads WHERE id = %s", (thread_id,))
+                conn.commit()
+
+            return {"message": "Thread successfully deleted."}
+
+        except HTTPException as he:
+            raise he
+        except Exception as e:
+            conn.rollback()
+            print("Error: " + str(e))
+            raise HTTPException(status_code=500, detail="Operation failed.")
+
+@router.post("/mnetwork/lock-thread")
+def lock_thread(payload: threadOperation, user_id=Depends(get_current_user_id)):
+    if not user_id:
+        return JSONResponse(status_code=401, content={"detail": "Login required."})
+
+    thread_id = payload.thread_id
+    with get_dict_connection("mnetwork") as conn:
+        try:
+            conn.autocommit = False
+            thread = get_thread_and_check_permission(thread_id, user_id, conn)
+
+            with conn.cursor() as cursor:
+                cursor.execute("UPDATE threads SET locked = 1 WHERE id = %s", (thread_id,))
+                conn.commit()
+
+            return {"message": "Thread successfully locked."}
+
+        except HTTPException as he:
+            raise he
+        except Exception as e:
+            conn.rollback()
+            print("Error: " + str(e))
+            raise HTTPException(status_code=500, detail="Operation failed.")
+
+@router.post("/mnetwork/unlock-thread")
+def unlock_thread(payload: threadOperation, user_id=Depends(get_current_user_id)):
+    if not user_id:
+        return JSONResponse(status_code=401, content={"detail": "Login required."})
+
+    thread_id = payload.thread_id
+    with get_dict_connection("mnetwork") as conn:
+        try:
+            conn.autocommit = False
+            thread = get_thread_and_check_permission(thread_id, user_id, conn)
+
+            with conn.cursor() as cursor:
+                cursor.execute("UPDATE threads SET locked = 0 WHERE id = %s", (thread_id,))
+                conn.commit()
+
+            return {"message": "Thread successfully unlocked."}
+
+        except HTTPException as he:
+            raise he
         except Exception as e:
             conn.rollback()
             print("Error: " + str(e))
