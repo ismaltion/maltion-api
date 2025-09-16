@@ -1,4 +1,5 @@
-from db import get_connection
+from db import get_connection, get_dict_connection
+from datetime import datetime, timedelta
 
 def get_user_information(user_id, conn=None):
     autoclose = False
@@ -72,3 +73,24 @@ def send_notification(user_id, notification, conn = None):
 
 def notification(type, content, reference_id, reference_type):
     return { "type": type, "content": content, "reference_id": reference_id, "reference_type": reference_type}
+
+def rate_limiter(user_id):
+    with get_dict_connection("main") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT last_mnetwork_interaction FROM users WHERE id = %s", (user_id,))
+            result = cursor.fetchone()
+
+            if not result:
+                raise Exception(f"User not found: ID{user_id}")
+            
+            last_interaction = result["last_mnetwork_interaction"]
+
+            utcnow = datetime.utcnow()
+
+            if utcnow > last_interaction:
+                later = utcnow + timedelta(seconds=10)
+                cursor.execute("UPDATE users SET last_mnetwork_interaction = %s WHERE id = %s", (later, user_id,))
+                conn.commit()
+                return True
+            else:
+                return False

@@ -89,3 +89,7 @@ class reportAbuse(BaseModel):
 class editCommunity(BaseModel):
     community_id: int
     value: str
+
+class editThread(BaseModel):
+    thread_id: int
+    value: str
