@@ -86,6 +86,8 @@ async def router_create_post(
     if image:
         has_image = 1
 
+    comm_id = 0
+
     if not user_id:
         raise HTTPException(status_code=401, detail=noAccMsg)
 
@@ -164,16 +166,28 @@ async def router_create_post(
                     raise HTTPException(status_code=400, detail=f"Image processing failed: {str(e)}")
 
             mentions = set(re.findall(r"(?<!\w)@([A-Za-z0-9_.-]+)(?=\s|$|[.,!?:])", content))
+            was_everyone_mentioned = False
             for recipient in mentions:
                 if recipient != username:
                     if parent_post_id == 0:
                         notify = notification("MNetwork", f"@{username} mentioned you in {title} of {community_name}", thread_id, "post_mention")
                     else:
                         notify = notification("MNetwork", f"@{username} replied to you in {title} of {community_name}", thread_id, "post_reply")
-                    recipient_data = get_user_information_by_username(recipient)
-                    if recipient_data:
-                        recipient_id = recipient_data.get("id")
-                        send_notification(recipient_id, notify)
+                    if recipient == "everyone" and not was_everyone_mentioned:
+                        was_everyone_mentioned = True
+                        cursor.execute("SELECT * FROM community_follows WHERE community_id = %s", (comm_id,))
+                        result = cursor.fetchall()
+                        if parent_post_id == 0:
+                            notify = notification("MNetwork", f"@{username} mentioned everyone in {title} of {community_name}", thread_id, "post_mention")
+                        else:
+                            notify = notification("MNetwork", f"@{username} replied to everyone in {title} of {community_name}", thread_id, "post_reply")
+                        for processed_recipient in result:
+                            send_notification(processed_recipient["user_id"], notify)
+                    else:
+                        recipient_data = get_user_information_by_username(recipient)
+                        if recipient_data:
+                            recipient_id = recipient_data.get("id")
+                            send_notification(recipient_id, notify)
 
             conn.commit()
 
