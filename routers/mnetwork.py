@@ -885,6 +885,6 @@ def router_update_community_description(payload: editCommunity, user_id = Depend
             if not user_id == author_id:
                 raise HTTPException(status_code=403, detail="You need to be the owner of the community to do this operation.")
             
-            cursor.execute("UPDATE communities SET description = %s, WHERE id = %s", (value, community_id))
+            cursor.execute("UPDATE communities SET description = %s WHERE id = %s", (value, community_id))
             conn.commit()
             return { "message": "Description updated successfully" }
