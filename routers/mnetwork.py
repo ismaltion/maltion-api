@@ -182,7 +182,7 @@ async def router_create_post(
                         else:
                             notify = notification("MNetwork", f"@{username} replied to everyone in {title} of {community_name}", thread_id, "post_reply")
                         for processed_recipient in result:
-                            send_notification(processed_recipient["user_id"], notify)
+                            send_notification(processed_recipient[2], notify)
                     else:
                         recipient_data = get_user_information_by_username(recipient)
                         if recipient_data:
