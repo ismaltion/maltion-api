@@ -314,7 +314,7 @@ def router_search_users(query: str):
 def router_featured_communities():
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT * FROM communities WHERE id IN (3, 4, 5) LIMIT 50''')
+            cursor.execute('''SELECT * FROM communities WHERE id IN (3, 4, 5, 19) LIMIT 50''')
             result = cursor.fetchall()
             return result
         
@@ -520,7 +520,7 @@ def router_mnetwork_unfollow_user(payload: follow, user_id=Depends(get_current_u
                 raise HTTPException(status_code=404, detail="The user you attempted to unfollow was not found.")
                     
 @router.get("/mnetwork/get-feed")
-def router_mnetwork_get_feed(user_id = Depends(get_current_user_id)):
+def router_mnetwork_get_feed(user_id=Depends(get_current_user_id)):
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -532,20 +532,29 @@ def router_mnetwork_get_feed(user_id = Depends(get_current_user_id)):
             if followed_communities:
                 format_strings = ",".join(['%s'] * len(followed_communities))
                 query = f'''
-                    SELECT * FROM threads
-                    WHERE community_id IN ({format_strings})
-                    ORDER BY timestamp DESC
+                    SELECT t.*, c.name AS community_name
+                    FROM threads t
+                    JOIN communities c ON t.community_id = c.id
+                    WHERE t.community_id IN ({format_strings})
+                    ORDER BY t.timestamp DESC
                     LIMIT 30
                 '''
                 cursor.execute(query, tuple(followed_communities))
                 threads = cursor.fetchall()
             else:
-                cursor.execute(
-                    "SELECT * FROM threads WHERE community_id = 1 ORDER BY timestamp DESC LIMIT 30"
-                )
+                query = '''
+                    SELECT t.*, c.name AS community_name
+                    FROM threads t
+                    JOIN communities c ON t.community_id = c.id
+                    WHERE t.community_id = 1
+                    ORDER BY t.timestamp DESC
+                    LIMIT 30
+                '''
+                cursor.execute(query)
                 threads = cursor.fetchall()
             
-            return threads
+            return {"threads": threads}
+
 
 @router.post("/mnetwork/transfer-community-ownership")
 def transfer_community_ownership(payload: transferCommunityOwnership, user_id = Depends(get_current_user_id)):
