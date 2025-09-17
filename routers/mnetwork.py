@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File, UploadFile, Form
 from fastapi.responses import JSONResponse
-from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, editCommunity, editThread, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings
+from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, editCommunity, editThread, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings, deletePost
 from auth import get_current_user_id, check_password
 from db import get_connection, get_dict_connection
 from utils import get_user_information, get_user_information_by_username, send_notification, notification
@@ -651,8 +651,17 @@ def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_
 
                 author = result["author_id"]
 
+                user_info = get_user_information(user_id)
+                if not user_info:
+                    return JSONResponse(status_code=404, content={"detail": "User not found."})
+                
+                trust = user_info["trust"]
+                if not trust:
+                    trust = 0
+
                 if author != user_id:
-                    return JSONResponse(status_code=403, content={"detail": "You must be the owner of this community to delete it."})
+                    if trust < 10:
+                        return JSONResponse(status_code=403, content={"detail": "You must be the owner of this community to delete it."})
                 
                 with get_dict_connection("main") as main_conn:
                     with main_conn.cursor() as main_cursor:
@@ -693,10 +702,21 @@ def get_thread_and_check_permission(thread_id, user_id, conn):
             raise HTTPException(status_code=404, detail="Community not found.")
 
         if thread["author_id"] != user_id and community["author_id"] != user_id:
-            raise HTTPException(
-                status_code=403,
-                detail="You must be the author of this thread or owner of community to perform this action."
-            )
+            with get_dict_connection("main") as conn_2:
+                with conn_2.cursor() as cursor:
+                    cursor.execute("SELECT trust FROM users WHERE id = %s", (user_id,))
+                    result = cursor.fetchone()
+                    if not result:
+                        raise HTTPException(status_code=404, detail="User not found.")
+                    trust = result.get("trust")
+
+                    # this so admins can do this.
+
+                    if not trust or trust < 10:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="You must be the author of this thread or owner of community to perform this action."
+                        )
 
         return thread
 
@@ -768,6 +788,60 @@ def unlock_thread(payload: threadOperation, user_id=Depends(get_current_user_id)
 
         except HTTPException as he:
             raise he
+        except Exception as e:
+            conn.rollback()
+            print("Error: " + str(e))
+            raise HTTPException(status_code=500, detail="Operation failed.")
+        
+@router.post("/mnetwork/delete-post")
+def delete_post(payload: deletePost, user_id=Depends(get_current_user_id)):
+    post_id = payload.id
+
+    if not user_id:
+        return JSONResponse(status_code=401, content={"detail": "Login required."})
+
+    with get_dict_connection("mnetwork") as conn:
+        try:
+            conn.autocommit = False
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT author_id, thread_id FROM posts WHERE id = %s LIMIT 1", (post_id,))
+                result = cursor.fetchone()
+
+                if not result:
+                    return JSONResponse(status_code=404, content={"detail": "Post not found."})
+
+                post_author = result["author_id"]
+                thread_id = result["thread_id"]
+
+                user_info = get_user_information(user_id)
+                if not user_info:
+                    return JSONResponse(status_code=404, content={"detail": "User not found."})
+                
+                trust = int(user_info.get("trust", 0))
+
+                if post_author != user_id:
+                    # most scuffed way of getting the community id bruh i cant remember how to use JOIN
+                    
+                    community_author = None
+                    cursor.execute("SELECT community_id FROM threads WHERE id = %s LIMIT 1", (thread_id,))
+                    result_1 = cursor.fetchone()
+                    if result_1:
+                        community_id = result_1["community_id"]
+                        cursor.execute("SELECT author_id FROM communities WHERE id = %s LIMIT 1", (community_id,))
+                        result_2 = cursor.fetchone()
+                        community_author = result_2["author_id"]
+
+                    if community_author != user_id:
+                        # we also want admins to be able to delete posts
+                        if trust < 10:
+                            return JSONResponse(status_code=403, content={"detail": "You must be the author of this post or the owner of the community to delete it."})
+            
+
+                cursor.execute("DELETE FROM posts WHERE id = %s", (post_id,))
+                conn.commit()
+
+                return {"message": "Post successfully deleted."}
+
         except Exception as e:
             conn.rollback()
             print("Error: " + str(e))

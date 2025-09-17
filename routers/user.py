@@ -228,7 +228,7 @@ def route_getUsername(user_id: int = Depends(get_current_user_id)):
     if not user_info:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return {"username": user_info["username"]}
+    return {"username": user_info["username"], "trust": user_info["trust"]}
 
 @router.get("/check-login")
 def route_check_login(user_id: int = Depends(get_current_user_id)):

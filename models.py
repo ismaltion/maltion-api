@@ -93,3 +93,6 @@ class editCommunity(BaseModel):
 class editThread(BaseModel):
     thread_id: int
     value: str
+
+class deletePost(BaseModel):
+    id: int
