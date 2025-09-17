@@ -497,3 +497,19 @@ def get_notifications_preview(user_id = Depends(get_current_user_id)):
             notification_count = result["cnt"]
 
             return { "notifications": notification_count }
+        
+@router.post("/accept-admin")
+def accept_admin(user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You must log in to do this action.")
+    
+    with get_dict_connection("main") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET trust = 10 WHERE id = %s AND trust = 9", (user_id,))
+
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=403, detail="You are not invited to become an administrator.")
+
+            conn.commit()
+
+            return { "message": "You are now an administrator" }
