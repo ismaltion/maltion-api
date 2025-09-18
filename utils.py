@@ -1,13 +1,14 @@
 from db import get_connection, get_dict_connection
 from datetime import datetime, timedelta
 from fastapi import HTTPException
+import pymysql
 
 def get_user_information(user_id, conn=None):
     autoclose = False
     if not conn:
-        conn = get_connection("main")
+        conn = get_dict_connection("main")
         autoclose = True
-    with conn.cursor() as cursor:
+    with conn.cursor(pymysql.cursors.DictCursor) as cursor:
         cursor.execute("""
         SELECT username, email, displayName, birthday, createdOn, trust, banned, biography, 
                loginAttempts, lastInteraction, country, friends
@@ -18,9 +19,7 @@ def get_user_information(user_id, conn=None):
     if not row:
         return None
 
-    keys = ["username", "email", "displayName", "birthday", "createdOn", "trust", 
-            "banned", "biography", "loginAttempts", "lastInteraction", "country", "friends"]
-    user_info = dict(zip(keys, row))
+    user_info = row
     
     if user_info["friends"]:
         user_info["friends"] = user_info["friends"].split(",")
@@ -33,9 +32,9 @@ def get_user_information(user_id, conn=None):
 def get_user_information_by_username(username, conn=None):
     autoclose = False
     if not conn:
-        conn = get_connection("main")
+        conn = get_dict_connection("main")
         autoclose = True
-    with conn.cursor() as cursor:
+    with conn.cursor(pymysql.cursors.DictCursor) as cursor:
         cursor.execute("""
         SELECT id, username, email, displayName, birthday, createdOn, trust, banned, biography, 
                loginAttempts, lastInteraction, country, friends
@@ -47,9 +46,7 @@ def get_user_information_by_username(username, conn=None):
         if not row:
             return None
 
-        keys = ["id", "username", "email", "displayName", "birthday", "createdOn", "trust", 
-                "banned", "biography", "loginAttempts", "lastInteraction", "country", "friends"]
-        user_info = dict(zip(keys, row))
+        user_info = row
     
         if user_info["friends"]:
             user_info["friends"] = user_info["friends"].split(",")
