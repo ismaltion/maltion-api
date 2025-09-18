@@ -96,3 +96,11 @@ class editThread(BaseModel):
 
 class deletePost(BaseModel):
     id: int
+
+class banning(BaseModel):
+    username: str
+    module: str
+    reason: Optional[str] = None
+
+class unbanning(BaseModel):
+    username: str

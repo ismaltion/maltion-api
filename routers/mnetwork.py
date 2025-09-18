@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, editCommunity, editThread, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings, deletePost
 from auth import get_current_user_id, check_password
 from db import get_connection, get_dict_connection
-from utils import get_user_information, get_user_information_by_username, send_notification, notification
+from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban
 from typing import Optional
 from config import IMAGE_UPLOAD_FOLDER
 from PIL import Image
@@ -20,6 +20,8 @@ noAccMsg = "You need to login with a Maltion account to do this action."
 def router_create_community(payload: mnetwork_create_community, user_id = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail=noAccMsg)
+    
+    check_ban(user_id, "MNetwork")
     
     name = payload.name
     description = payload.description
@@ -41,6 +43,8 @@ def router_create_community(payload: mnetwork_create_community, user_id = Depend
 def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail=noAccMsg)
+    
+    check_ban(user_id, "MNetwork")
     
     title = payload.title
     content = payload.content
@@ -90,6 +94,8 @@ async def router_create_post(
 
     if not user_id:
         raise HTTPException(status_code=401, detail=noAccMsg)
+    
+    check_ban(user_id, "MNetwork")
 
     with get_connection("mnetwork") as conn:
         user_info = get_user_information(user_id)
@@ -198,6 +204,7 @@ async def router_create_post(
 @router.get("/mnetwork/get-community")
 def router_get_community(community: int, user_id = Depends(get_current_user_id)):
     liked = False
+    check_ban(user_id, "MNetwork")
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
             cursor.execute('''SELECT author_id, author_name, name, description, locked, can_add, timestamp, last_activity, follows FROM communities WHERE id = %s LIMIT 1''', (community,))
@@ -223,6 +230,7 @@ def router_update_community_settings(payload: updateCommunitySettings, user_id =
     community_id = payload.community_id
     locked = payload.locked
     can_add = payload.can_add
+    check_ban(user_id, "MNetwork")
 
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
@@ -336,6 +344,7 @@ def router_featured_communities():
 def router_my_communities(user_id = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    check_ban(user_id, "MNetwork")
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
             cursor.execute('''SELECT * FROM communities WHERE author_id = %s LIMIT 50''', (user_id,))
@@ -346,6 +355,8 @@ def router_my_communities(user_id = Depends(get_current_user_id)):
 def router_mnetwork_like_post(payload: follow, user_id = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    
+    check_ban(user_id, "MNetwork")
     
     user_info = get_user_information(user_id)
     username = user_info["username"]
@@ -370,6 +381,11 @@ def router_mnetwork_like_post(payload: follow, user_id = Depends(get_current_use
         
 @router.post("/mnetwork/like-post")
 def router_mnetwork_like_post(payload: like, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    
+    check_ban(user_id, "MNetwork")
+    
     with get_dict_connection("mnetwork") as conn:
         post = payload.id
         with conn.cursor() as cursor:
@@ -393,6 +409,11 @@ def router_mnetwork_like_post(payload: like, user_id = Depends(get_current_user_
             
 @router.post("/mnetwork/like-thread")
 def router_mnetwork_like_thread(payload: like, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    
+    check_ban(user_id, "MNetwork")
+    
     with get_dict_connection("mnetwork") as conn:
         thread = payload.id
         with conn.cursor() as cursor:
@@ -416,6 +437,11 @@ def router_mnetwork_like_thread(payload: like, user_id = Depends(get_current_use
             
 @router.post("/mnetwork/follow-community")
 def router_mnetwork_follow_community(payload: like, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    
+    check_ban(user_id, "MNetwork")
+    
     with get_dict_connection("mnetwork") as conn:
         community = payload.id
         with conn.cursor() as cursor:
@@ -439,6 +465,11 @@ def router_mnetwork_follow_community(payload: like, user_id = Depends(get_curren
             
 @router.post("/mnetwork/unfollow-community")
 def router_mnetwork_unfollow_community(payload: like, user_id=Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    
+    check_ban(user_id, "MNetwork")
+    
     with get_dict_connection("mnetwork") as conn:
         community = payload.id
         with conn.cursor() as cursor:
@@ -462,6 +493,11 @@ def router_mnetwork_unfollow_community(payload: like, user_id=Depends(get_curren
             
 @router.post("/mnetwork/unlike-post")
 def router_mnetwork_unlike_post(payload: like, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    
+    check_ban(user_id, "MNetwork")
+    
     with get_dict_connection("mnetwork") as conn:
         post = payload.id
         with conn.cursor() as cursor:
@@ -485,6 +521,11 @@ def router_mnetwork_unlike_post(payload: like, user_id = Depends(get_current_use
 
 @router.post("/mnetwork/unlike-thread")
 def router_mnetwork_unlike_thread(payload: like, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    
+    check_ban(user_id, "MNetwork")
+    
     with get_dict_connection("mnetwork") as conn:
         thread = payload.id
         with conn.cursor() as cursor:
@@ -510,6 +551,9 @@ def router_mnetwork_unlike_thread(payload: like, user_id = Depends(get_current_u
 def router_mnetwork_unfollow_user(payload: follow, user_id=Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    
+    check_ban(user_id, "MNetwork")
+
     with get_dict_connection("mnetwork") as conn:
         recipient = payload.user
         with conn.cursor() as cursor:
@@ -572,10 +616,14 @@ def router_mnetwork_get_feed(user_id=Depends(get_current_user_id)):
 
 @router.post("/mnetwork/transfer-community-ownership")
 def transfer_community_ownership(payload: transferCommunityOwnership, user_id = Depends(get_current_user_id)):
-
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You have to log in to do this operation.")
+    
     community_id = payload.community_id
     new_owner = payload.new_owner
     password = payload.password
+
+    check_ban(user_id, "MNetwork")
 
     with get_dict_connection("mnetwork") as conn:
         try:
@@ -636,6 +684,8 @@ def delete_community(payload: deleteCommunity, user_id=Depends(get_current_user_
     if not user_id:
         return JSONResponse(status_code=401, content={"detail": "Login required."})
     
+    check_ban(user_id, "MNetwork")
+
     community_id = payload.community_id
     password = payload.password
 
@@ -724,6 +774,8 @@ def get_thread_and_check_permission(thread_id, user_id, conn):
 def delete_thread(payload: threadOperation, user_id=Depends(get_current_user_id)):
     if not user_id:
         return JSONResponse(status_code=401, content={"detail": "Login required."})
+    
+    check_ban(user_id, "MNetwork")
 
     thread_id = payload.thread_id
     with get_dict_connection("mnetwork") as conn:
@@ -749,6 +801,8 @@ def delete_thread(payload: threadOperation, user_id=Depends(get_current_user_id)
 def lock_thread(payload: threadOperation, user_id=Depends(get_current_user_id)):
     if not user_id:
         return JSONResponse(status_code=401, content={"detail": "Login required."})
+    
+    check_ban(user_id, "MNetwork")
 
     thread_id = payload.thread_id
     with get_dict_connection("mnetwork") as conn:
@@ -773,6 +827,8 @@ def lock_thread(payload: threadOperation, user_id=Depends(get_current_user_id)):
 def unlock_thread(payload: threadOperation, user_id=Depends(get_current_user_id)):
     if not user_id:
         return JSONResponse(status_code=401, content={"detail": "Login required."})
+    
+    check_ban(user_id, "MNetwork")
 
     thread_id = payload.thread_id
     with get_dict_connection("mnetwork") as conn:
@@ -799,6 +855,8 @@ def delete_post(payload: deletePost, user_id=Depends(get_current_user_id)):
 
     if not user_id:
         return JSONResponse(status_code=401, content={"detail": "Login required."})
+    
+    check_ban(user_id, "MNetwork")
 
     with get_dict_connection("mnetwork") as conn:
         try:
@@ -904,6 +962,8 @@ def get_user_communities(user: str):
 def get_followed_communities(user_id=Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=404, detail="User not found.")
+    
+    check_ban(user_id, "MNetwork")
 
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
@@ -924,6 +984,7 @@ def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
     user_information = get_user_information_by_username(user)
     if not user_information:
         raise HTTPException(status_code=404, detail="User not found")
+
     user_id = user_information["id"]
 
     # just in case
@@ -957,6 +1018,11 @@ def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
         
 @router.post("/mnetwork/update-community-description")
 def router_update_community_description(payload: editCommunity, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    check_ban(user_id, "MNetwork")
+
     community_id = payload.community_id
     value = payload.value
 
@@ -981,6 +1047,11 @@ def router_update_community_description(payload: editCommunity, user_id = Depend
 def router_update_community_description(payload: editThread, user_id = Depends(get_current_user_id)):
     thread_id = payload.thread_id
     value = payload.value
+
+    if not user_id:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    check_ban(user_id, "MNetwork")
 
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:

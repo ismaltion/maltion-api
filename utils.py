@@ -1,5 +1,6 @@
 from db import get_connection, get_dict_connection
 from datetime import datetime, timedelta
+from fastapi import HTTPException
 
 def get_user_information(user_id, conn=None):
     autoclose = False
@@ -94,3 +95,12 @@ def rate_limiter(user_id):
                 return True
             else:
                 return False
+            
+def check_ban(user_id, module="main"):
+    with get_dict_connection("main") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT bans FROM users WHERE id = %s AND module = %s", (user_id, module))
+            result = cursor.fetchone()
+
+            if result:
+                raise HTTPException(status_code=403, detail="You are banned.")
