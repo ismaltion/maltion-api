@@ -226,14 +226,14 @@ def route_getUsername(user_id: int = Depends(get_current_user_id)):
 
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found")
-        
+
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM bans WHERE user_id = %s AND module = %s", (user_id, "MNetwork"))
             result = cursor.fetchone()
             banned = False
             if result:
                 banned = True
-    
+
             return {"username": user_info["username"], "trust": user_info["trust"], "banned": banned}
 
 @router.get("/check-login")
@@ -519,3 +519,15 @@ def accept_admin(user_id = Depends(get_current_user_id)):
             conn.commit()
 
             return { "message": "You are now an administrator" }
+        
+@router.get("/get-ban")
+def router_get_ban(user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You must log in to do this action.")
+    
+    with get_dict_connection("main") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM bans WHERE user_id = %s LIMIT 1", (user_id,))
+            result = cursor.fetchone()
+
+            return {"ban": result or None}
