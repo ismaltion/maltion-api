@@ -99,7 +99,7 @@ def rate_limiter(user_id):
 def check_ban(user_id, module="main"):
     with get_dict_connection("main") as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT bans FROM users WHERE id = %s AND module = %s", (user_id, module))
+            cursor.execute("SELECT * FROM bans WHERE id = %s AND module = %s", (user_id, module))
             result = cursor.fetchone()
 
             if result:
