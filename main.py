@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import ALLOWED_ORIGINS
-from routers import user, websocket, stats, friends, mnetwork, rdmedics, cheatgpt
+from routers import user, websocket, stats, friends, mnetwork, rdmedics, cheatgpt, admin
 from db import get_dict_connection
 import asyncio
 
@@ -21,6 +21,7 @@ app.include_router(stats.router)
 app.include_router(friends.router)
 app.include_router(mnetwork.router)
 app.include_router(cheatgpt.router)
+app.include_router(admin.router)
 
 THREAD_ID_MAP = {
     1: 6,

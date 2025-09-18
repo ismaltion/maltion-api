@@ -16,7 +16,7 @@ def router_reports(user_id: int = Depends(get_current_user_id)):
         user_info = get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found")
-        trust = user_info.get("trust", 0)
+        trust = int(user_info.get("trust", 0))
 
         if trust < 10:
             raise HTTPException(status_code=403, detail="You are not an admin.")
@@ -40,7 +40,7 @@ def router_reports(payload: banning, user_id: int = Depends(get_current_user_id)
         user_info = get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found")
-        trust = user_info.get("trust", 0)
+        trust = int(user_info.get("trust", 0))
 
         if trust < 10:
             raise HTTPException(status_code=403, detail="You are not an admin.")
@@ -67,7 +67,7 @@ def router_reports(payload: unbanning, user_id: int = Depends(get_current_user_i
         user_info = get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found")
-        trust = user_info.get("trust", 0)
+        trust = int(user_info.get("trust", 0))
 
         if trust < 10:
             raise HTTPException(status_code=403, detail="You are not an admin.")
