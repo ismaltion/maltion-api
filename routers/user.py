@@ -221,14 +221,20 @@ def route_getUserInfo(user_id: int = Depends(get_current_user_id)):
 
 @router.get("/get-username")
 def route_getUsername(user_id: int = Depends(get_current_user_id)):
-    conn = get_connection()
-    user_info = get_user_information(user_id, conn)
-    conn.close()
+    with get_dict_connection() as conn:
+        user_info = get_user_information(user_id, conn)
 
     if not user_info:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT * FROM bans WHERE user_id = %s AND module = %s", (user_id, "MNetwork"))
+        result = cursor.fetchone()
+        banned = False
+        if result:
+            banned = True
 
-    return {"username": user_info["username"], "trust": user_info["trust"]}
+        return {"username": user_info["username"], "trust": user_info["trust"], "banned": banned}
 
 @router.get("/check-login")
 def route_check_login(user_id: int = Depends(get_current_user_id)):
