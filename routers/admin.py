@@ -53,7 +53,7 @@ def router_get_report(id: int, user_id: int = Depends(get_current_user_id)):
             parent_module = result["parent_module"]
             parent_type = result["parent_type"]
 
-            if parent_module == "MNetwork":
+            if parent_module == "mnetwork":
                 with get_dict_connection("MNetwork") as mnetwork_conn:
                     with mnetwork_conn.cursor() as mnetwork_cursor:
                         parent_type_query = "posts"
