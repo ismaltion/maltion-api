@@ -52,20 +52,19 @@ def router_get_report(id: int, user_id: int = Depends(get_current_user_id)):
             parent_id = result["parent_id"]
             parent_module = result["parent_module"]
             parent_type = result["parent_type"]
-
+            
             if parent_module == "mnetwork":
-                with get_dict_connection("MNetwork") as mnetwork_conn:
+                with get_dict_connection("mnetwork") as mnetwork_conn:
                     with mnetwork_conn.cursor() as mnetwork_cursor:
                         parent_type_query = "posts"
-                        if parent_type:
-                            table_map = {
-                                    "post": "posts",
-                                    "thread": "threads",
-                                    "community": "communities"
-                            }
+                        table_map = {
+                            "post": "posts",
+                            "thread": "threads",
+                            "community": "communities"
+                        }
                 
-                            parent_type_query = str(table_map.get(parent_type, "posts"))
-                        mnetwork_cursor.execute(f"SELECT * FROM {parent_type_query} WHERE id = %s LIMIT 1", (parent_id,))
+                        parent_type_query = table_map[parent_type]
+                        mnetwork_cursor.execute(f"SELECT * FROM {parent_type_query} WHERE id = {parent_id} LIMIT 1")
                         content_result = mnetwork_cursor.fetchone()
             
             return { "report_detail": result, "report_content": content_result }
