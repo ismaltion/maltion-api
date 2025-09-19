@@ -52,6 +52,12 @@ def router_get_report(id: int, user_id: int = Depends(get_current_user_id)):
             parent_id = result["parent_id"]
             parent_module = result["parent_module"]
             parent_type = result["parent_type"]
+            author_id = result["author_id"]
+
+            cursor.execute("SELECT username FROM users WHERE id = %s LIMIT 1", (author_id,))
+            result_2 = cursor.fetchone()
+            if result_2:
+                result["author_name"] = result_2["username"]
             
             if parent_module == "mnetwork":
                 with get_dict_connection("mnetwork") as mnetwork_conn:
