@@ -273,9 +273,12 @@ def router_get_thread(thread: int, user_id = Depends(get_current_user_id)):
 def router_get_community_threads(community: int):
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT * FROM threads WHERE community_id = %s LIMIT 50''', (community,))
+            cursor.execute('''SELECT * FROM threads WHERE community_id = %s AND pinned = 0 LIMIT 50''', (community,))
             result = cursor.fetchall()
-            return result
+
+            cursor.execute('''SELECT * FROM threads WHERE community_id = %s AND pinned = 1 LIMIT 50''', (community,))
+            pinned = cursor.fetchall()
+            return { "threads": result, "pinned": pinned }
 
 @router.get("/mnetwork/get-thread-posts")
 def router_get_thread_posts(thread: int, user_id = Depends(get_current_user_id)):
@@ -769,6 +772,37 @@ def get_thread_and_check_permission(thread_id, user_id, conn):
                         )
 
         return thread
+    
+def get_thread_community_and_check_permission(thread_id, user_id, conn):
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT community_id FROM threads WHERE id = %s LIMIT 1", (thread_id,))
+        thread = cursor.fetchone()
+        if not thread:
+            raise HTTPException(status_code=404, detail="Thread not found.")
+
+        cursor.execute("SELECT author_id FROM communities WHERE id = %s LIMIT 1", (thread["community_id"],))
+        community = cursor.fetchone()
+        if not community:
+            raise HTTPException(status_code=404, detail="Community not found.")
+
+        if ["author_id"] != user_id:
+            with get_dict_connection("main") as conn_2:
+                with conn_2.cursor() as cursor:
+                    cursor.execute("SELECT trust FROM users WHERE id = %s", (user_id,))
+                    result = cursor.fetchone()
+                    if not result:
+                        raise HTTPException(status_code=404, detail="User not found.")
+                    trust = result.get("trust")
+
+                    # this so admins can do this.
+
+                    if not trust or trust < 10:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="You must be the author of this thread or owner of community to perform this action."
+                        )
+
+        return thread
 
 @router.post("/mnetwork/delete-thread")
 def delete_thread(payload: threadOperation, user_id=Depends(get_current_user_id)):
@@ -1123,3 +1157,37 @@ def router_update_thread_description(payload: editThread, user_id = Depends(get_
             cursor.execute("UPDATE threads SET content = %s WHERE id = %s", (value, thread_id))
             conn.commit()
             return { "message": "Description updated successfully" }
+        
+@router.post("/mnetwork/pin-thread")
+def router_pin_thread(thread_id: int, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    check_ban(user_id, "MNetwork")
+
+    with get_dict_connection("mnetwork") as conn:
+        conn.autocommit = False
+        thread = get_thread_community_and_check_permission(thread_id, user_id, conn)
+
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE threads SET pinned = 1 WHERE id = %s", (thread_id,))
+            conn.commit()
+
+            return { "message": "Thread pinned successfully" }
+        
+@router.post("/mnetwork/unpin-thread")
+def router_pin_thread(thread_id: int, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    check_ban(user_id, "MNetwork")
+
+    with get_dict_connection("mnetwork") as conn:
+        conn.autocommit = False
+        thread = get_thread_community_and_check_permission(thread_id, user_id, conn)
+
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE threads SET pinned = 0 WHERE id = %s", (thread_id,))
+            conn.commit()
+            
+            return { "message": "Thread un-pinned successfully" }
