@@ -1016,6 +1016,33 @@ def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
 
             return { "profile": result1, "following": following, "follower_count": follower_count }
         
+@router.post("/mnetwork/update-community-name")
+def router_update_community_name(payload: editCommunity, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    check_ban(user_id, "MNetwork")
+
+    community_id = payload.community_id
+    value = payload.value
+
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT author_id FROM communities WHERE id = %s", (community_id,))
+            result = cursor.fetchone()
+            
+            if not result:
+                raise HTTPException(status_code=404, detail="Community not found.")
+            
+            author_id = result["author_id"]
+
+            if not user_id == author_id:
+                raise HTTPException(status_code=403, detail="You need to be the owner of the community to do this operation.")
+            
+            cursor.execute("UPDATE communities SET name = %s WHERE id = %s", (value, community_id))
+            conn.commit()
+            return { "message": "Name updated successfully" }
+        
 @router.post("/mnetwork/update-community-description")
 def router_update_community_description(payload: editCommunity, user_id = Depends(get_current_user_id)):
     if not user_id:
@@ -1043,8 +1070,35 @@ def router_update_community_description(payload: editCommunity, user_id = Depend
             conn.commit()
             return { "message": "Description updated successfully" }
         
+@router.post("/mnetwork/update-thread-title")
+def router_update_thread_title(payload: editThread, user_id = Depends(get_current_user_id)):
+    thread_id = payload.thread_id
+    value = payload.value
+
+    if not user_id:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    check_ban(user_id, "MNetwork")
+
+    with get_dict_connection("mnetwork") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT author_id FROM threads WHERE id = %s", (thread_id,))
+            result = cursor.fetchone()
+            
+            if not result:
+                raise HTTPException(status_code=404, detail="Thread not found.")
+            
+            author_id = result["author_id"]
+
+            if not user_id == author_id:
+                raise HTTPException(status_code=403, detail="You need to be the owner of the thread to do this operation.")
+            
+            cursor.execute("UPDATE threads SET title = %s WHERE id = %s", (value, thread_id))
+            conn.commit()
+            return { "message": "Title updated successfully" }
+        
 @router.post("/mnetwork/update-thread-description")
-def router_update_community_description(payload: editThread, user_id = Depends(get_current_user_id)):
+def router_update_thread_description(payload: editThread, user_id = Depends(get_current_user_id)):
     thread_id = payload.thread_id
     value = payload.value
 
