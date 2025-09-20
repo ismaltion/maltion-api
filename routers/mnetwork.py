@@ -785,7 +785,7 @@ def get_thread_community_and_check_permission(thread_id, user_id, conn):
         if not community:
             raise HTTPException(status_code=404, detail="Community not found.")
 
-        if ["author_id"] != user_id:
+        if community["author_id"] != user_id:
             with get_dict_connection("main") as conn_2:
                 with conn_2.cursor() as cursor:
                     cursor.execute("SELECT trust FROM users WHERE id = %s", (user_id,))
