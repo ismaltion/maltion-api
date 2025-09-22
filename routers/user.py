@@ -42,7 +42,7 @@ def register_user(
         raise HTTPException(status_code=400, detail="Invalid email address.")
     if len(displayName) < 4 or len(displayName) > 20:
         raise HTTPException(status_code=400, detail="Display name must be between 4 and 20 characters long.")
-    if len(country) < 3 or len(country) > 32:
+    if len(country) > 32:
         raise HTTPException(status_code=400, detail="Country must be between 3 and 32 characters long.")
     # end of extensive checks    
 

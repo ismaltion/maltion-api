@@ -1,17 +1,16 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File, UploadFile, Form
 from fastapi.responses import JSONResponse
-from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, editCommunity, editThread, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings, deletePost
+from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, editCommunity, editThread, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings, deletePost, field_1
 from auth import get_current_user_id, check_password
 from db import get_connection, get_dict_connection
-from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban
+from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban, set_setting, get_setting
 from typing import Optional
 from config import IMAGE_UPLOAD_FOLDER
 from PIL import Image
-import re
-import os
-import io
+import re, os, io
 
 MAX_UPLOAD_SIZE = 1024 * 1024 * 5
+ALLOWED_IMAGE_TYPES = {"jpeg", "png", "gif"}
 
 router = APIRouter()
 noAccMsg = "You need to login with a Maltion account to do this action."
@@ -33,9 +32,16 @@ def router_create_community(payload: mnetwork_create_community, user_id = Depend
             raise HTTPException(status_code=404, detail="User not found.")
         
         username = user_info.get("username")
+        premium = user_info["premium"]
+        username_color = "#808080"
+        if premium == 1:
+            username_color = get_setting(user_id, "Username color")
+        
+        username = user_info["username"]
+        extra_information = { "Username color": username_color }
 
         with conn.cursor() as cursor:
-            cursor.execute('''INSERT INTO communities (author_id, author_name, name, description, locked) VALUES (%s, %s, %s, %s, 0)''', (user_id, username, name, description))
+            cursor.execute('''INSERT INTO communities (author_id, author_name, name, description, locked, extra_info) VALUES (%s, %s, %s, %s, 0, %s)''', (user_id, username, name, description, extra_information))
             conn.commit()
         return JSONResponse(status_code=201, content={"message": "Community created successfully."})
     
@@ -57,6 +63,13 @@ def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_
             raise HTTPException(status_code=404, detail="User not found.")
         
         username = user_info.get("username")
+        premium = user_info["premium"]
+        username_color = "#808080"
+        if premium == 1:
+            username_color = get_setting(user_id, "Username color")
+        
+        username = user_info["username"]
+        extra_information = { "Username color": username_color }
 
         with conn.cursor() as cursor:
             cursor.execute('''SELECT locked, can_add, id FROM communities WHERE id = %s''', (community_id,))
@@ -69,7 +82,7 @@ def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_
                 
                 comm_id = result[2]
                 
-                cursor.execute('''INSERT INTO threads (community_id, author_id, author_name, title, content, locked) VALUES (%s, %s, %s, %s, %s, 0)''', (community_id, user_id, username, title, content))
+                cursor.execute('''INSERT INTO threads (community_id, author_id, author_name, title, content, locked, extra_info) VALUES (%s, %s, %s, %s, %s, 0, %s)''', (community_id, user_id, username, title, content, extra_information))
                 cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} created a new thread: {title}", comm_id))
                 cursor.execute('''UPDATE communities SET last_activity = NOW() WHERE id = %s''', comm_id)
                 conn.commit()
@@ -102,7 +115,13 @@ async def router_create_post(
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
         
-        username = user_info.get("username")
+        username = user_info["username"]
+        premium = user_info["premium"]
+        username_color = "#808080"
+        if premium == 1:
+            username_color = get_setting(user_id, "Username color")
+        
+        extra_information = { "Username color": username_color }
 
         with conn.cursor() as cursor:
             cursor.execute('''SELECT locked, community_id, title FROM threads WHERE id = %s''', (thread_id,))
@@ -137,8 +156,8 @@ async def router_create_post(
                     raise HTTPException(status_code=404, detail="The parent post was not found.")
 
             cursor.execute(
-                '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image, parent_post_id) 
-                   VALUES (%s, %s, %s, %s, %s, %s) RETURNING id''',
+                '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image, parent_post_id, extra_info) 
+                   VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
                 (thread_id, user_id, username, content, has_image, parent_post_id)
             )
             post_id = cursor.fetchone()[0]
@@ -151,23 +170,22 @@ async def router_create_post(
             if image:
                 image_bytes = await image.read()
                 if len(image_bytes) > MAX_UPLOAD_SIZE:
-                    raise HTTPException(status_code=413, detail="Image size exceeds 5 MB limit.")
+                    raise HTTPException(status_code=413, detail="Image exceeds 5 MB limit.")
 
                 try:
                     img = Image.open(io.BytesIO(image_bytes))
-
+                    img.verify()
+                    img = Image.open(io.BytesIO(image_bytes))
                     if img.mode != "RGB":
                         img = img.convert("RGB")
-
+                    
                     max_size = 2000
                     if img.width > max_size or img.height > max_size:
                         img.thumbnail((max_size, max_size), Image.ANTIALIAS)
 
                     os.makedirs(IMAGE_UPLOAD_FOLDER, exist_ok=True)
                     file_location = f"{IMAGE_UPLOAD_FOLDER}/{post_id}.jpg"
-
                     img.save(file_location, format="JPEG", quality=80, optimize=True)
-
                 except Exception as e:
                     raise HTTPException(status_code=400, detail=f"Image processing failed: {str(e)}")
 
@@ -1017,7 +1035,7 @@ def get_followed_communities(user_id=Depends(get_current_user_id)):
 def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
     user_information = get_user_information_by_username(user)
     if not user_information:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="User not found.")
 
     user_id = user_information["id"]
 
@@ -1053,7 +1071,7 @@ def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
 @router.post("/mnetwork/update-community-name")
 def router_update_community_name(payload: editCommunity, user_id = Depends(get_current_user_id)):
     if not user_id:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="User not found.")
     
     check_ban(user_id, "MNetwork")
 
@@ -1073,6 +1091,16 @@ def router_update_community_name(payload: editCommunity, user_id = Depends(get_c
             if not user_id == author_id:
                 raise HTTPException(status_code=403, detail="You need to be the owner of the community to do this operation.")
             
+            user_info = get_user_information(user_id)
+
+            premium = user_info["premium"]
+            username_color = "#808080"
+            if premium == 1:
+                username_color = get_setting(user_id, "Username color")
+
+            username = user_info["username"]
+            extra_information = { "Username color": username_color }
+            
             cursor.execute("UPDATE communities SET name = %s WHERE id = %s", (value, community_id))
             conn.commit()
             return { "message": "Name updated successfully" }
@@ -1080,7 +1108,7 @@ def router_update_community_name(payload: editCommunity, user_id = Depends(get_c
 @router.post("/mnetwork/update-community-description")
 def router_update_community_description(payload: editCommunity, user_id = Depends(get_current_user_id)):
     if not user_id:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="User not found.")
     
     check_ban(user_id, "MNetwork")
 
@@ -1110,7 +1138,7 @@ def router_update_thread_title(payload: editThread, user_id = Depends(get_curren
     value = payload.value
 
     if not user_id:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="User not found.")
     
     check_ban(user_id, "MNetwork")
 
@@ -1127,7 +1155,15 @@ def router_update_thread_title(payload: editThread, user_id = Depends(get_curren
             if not user_id == author_id:
                 raise HTTPException(status_code=403, detail="You need to be the owner of the thread to do this operation.")
             
-            cursor.execute("UPDATE threads SET title = %s WHERE id = %s", (value, thread_id))
+            user_info = get_user_information(user_id)
+            premium = user_info["premium"]
+            username_color = "#808080"
+            if premium == 1:
+                username_color = get_setting(user_id, "Username color")
+
+            extra_information = { "Username color": username_color }
+            
+            cursor.execute("UPDATE threads SET title = %s, extra_info = %s WHERE id = %s", (value, extra_information, thread_id))
             conn.commit()
             return { "message": "Title updated successfully" }
         
@@ -1137,7 +1173,7 @@ def router_update_thread_description(payload: editThread, user_id = Depends(get_
     value = payload.value
 
     if not user_id:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="User not found.")
     
     check_ban(user_id, "MNetwork")
 
@@ -1161,7 +1197,7 @@ def router_update_thread_description(payload: editThread, user_id = Depends(get_
 @router.post("/mnetwork/pin-thread")
 def router_pin_thread(thread_id: int, user_id = Depends(get_current_user_id)):
     if not user_id:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="User not found.")
     
     check_ban(user_id, "MNetwork")
 
@@ -1178,7 +1214,7 @@ def router_pin_thread(thread_id: int, user_id = Depends(get_current_user_id)):
 @router.post("/mnetwork/unpin-thread")
 def router_pin_thread(thread_id: int, user_id = Depends(get_current_user_id)):
     if not user_id:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="User not found.")
     
     check_ban(user_id, "MNetwork")
 
@@ -1191,3 +1227,20 @@ def router_pin_thread(thread_id: int, user_id = Depends(get_current_user_id)):
             conn.commit()
             
             return { "message": "Thread un-pinned successfully" }
+        
+@router.post("/mnetwork/change-username-color")
+def router_change_username_color(payload: field_1, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=404, detail="User not found.")
+    
+    value = payload.value
+    
+    check_ban(user_id, "MNetwork")
+    user_info = get_user_information(user_id)
+
+    if user_info["premium"] == 0:
+        raise HTTPException(status_code=402, detail="You need a premium account to do this operation.")
+    if not re.fullmatch(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})", value):
+        raise HTTPException(status_code=400, detail="Invalid HEX code for color. Must be this format: #000000 or #FFF")
+    
+    set_setting(user_id, "Username color", value)
