@@ -7,7 +7,7 @@ from utils import get_user_information, get_user_information_by_username, send_n
 from typing import Optional
 from config import IMAGE_UPLOAD_FOLDER
 from PIL import Image
-import re, os, io
+import re, os, io, json
 
 MAX_UPLOAD_SIZE = 1024 * 1024 * 5
 ALLOWED_IMAGE_TYPES = {"jpeg", "png", "gif"}
@@ -39,9 +39,10 @@ def router_create_community(payload: mnetwork_create_community, user_id = Depend
         
         username = user_info["username"]
         extra_information = { "Username color": username_color }
+        extra_info = json.dumps(extra_information)
 
         with conn.cursor() as cursor:
-            cursor.execute('''INSERT INTO communities (author_id, author_name, name, description, locked, extra_info) VALUES (%s, %s, %s, %s, 0, %s)''', (user_id, username, name, description, extra_information))
+            cursor.execute('''INSERT INTO communities (author_id, author_name, name, description, locked, extra_info) VALUES (%s, %s, %s, %s, 0, %s)''', (user_id, username, name, description, extra_info))
             conn.commit()
         return JSONResponse(status_code=201, content={"message": "Community created successfully."})
     
@@ -70,6 +71,7 @@ def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_
         
         username = user_info["username"]
         extra_information = { "Username color": username_color }
+        extra_info = json.dumps(extra_information)
 
         with conn.cursor() as cursor:
             cursor.execute('''SELECT locked, can_add, id FROM communities WHERE id = %s''', (community_id,))
@@ -82,7 +84,7 @@ def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_
                 
                 comm_id = result[2]
                 
-                cursor.execute('''INSERT INTO threads (community_id, author_id, author_name, title, content, locked, extra_info) VALUES (%s, %s, %s, %s, %s, 0, %s)''', (community_id, user_id, username, title, content, extra_information))
+                cursor.execute('''INSERT INTO threads (community_id, author_id, author_name, title, content, locked, extra_info) VALUES (%s, %s, %s, %s, %s, 0, %s)''', (community_id, user_id, username, title, content, extra_info))
                 cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} created a new thread: {title}", comm_id))
                 cursor.execute('''UPDATE communities SET last_activity = NOW() WHERE id = %s''', comm_id)
                 conn.commit()
@@ -122,6 +124,7 @@ async def router_create_post(
             username_color = get_setting(user_id, "Username color")
         
         extra_information = { "Username color": username_color }
+        extra_info = json.dumps(extra_information)
 
         with conn.cursor() as cursor:
             cursor.execute('''SELECT locked, community_id, title FROM threads WHERE id = %s''', (thread_id,))
@@ -158,7 +161,7 @@ async def router_create_post(
             cursor.execute(
                 '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image, parent_post_id, extra_info) 
                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-                (thread_id, user_id, username, content, has_image, parent_post_id, extra_information)
+                (thread_id, user_id, username, content, has_image, parent_post_id, extra_info)
             )
             post_id = cursor.fetchone()[0]
             cursor.execute('''UPDATE threads SET activity_detail = %s WHERE id = %s''', (f"{username} added a post.", thread_id,))
