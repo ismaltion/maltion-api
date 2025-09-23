@@ -1332,4 +1332,7 @@ def router_claim_vip(request: Request, user_id = Depends(get_current_user_id)):
                 return { "status": "Congratulations! You now have the VIP pass. Enjoy :)" }
             else:
                 conn.commit()
-                return { "message": "Sorry, but you do not have enough invites. Valid invites (creating accounts yourself does not count as valid invite): " +  str(valid_count) }
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Sorry, but you do not have enough invites. Valid invites (creating accounts yourself does not count as valid invite): {valid_count}"
+                )
