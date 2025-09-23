@@ -652,6 +652,12 @@ def router_mnetwork_get_feed(user_id=Depends(get_current_user_id)):
                 cursor.execute(query)
                 threads = cursor.fetchall()
             
+            for thread in threads:
+                try:
+                    thread["extra_info"] = json.loads(thread.get("extra_info", "{}"))
+                except (TypeError, json.JSONDecodeError):
+                    thread["extra_info"] = {}
+            
             return {"threads": threads}
 
 
