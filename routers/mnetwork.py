@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File, UploadFile, Form
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File, UploadFile, Form, Request
 from fastapi.responses import JSONResponse
 from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, editCommunity, editThread, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings, deletePost, field_1
-from auth import get_current_user_id, check_password
+from auth import get_current_user_id, check_password, hash_ip
 from db import get_connection, get_dict_connection
-from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban, set_setting, get_setting
+from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban, set_setting, get_setting, add_badge
 from typing import Optional
 from config import IMAGE_UPLOAD_FOLDER
 from PIL import Image
@@ -645,7 +645,7 @@ def router_mnetwork_get_feed(user_id=Depends(get_current_user_id)):
                     SELECT t.*, c.name AS community_name
                     FROM threads t
                     JOIN communities c ON t.community_id = c.id
-                    WHERE t.community_id = 1
+                    WHERE t.community_id = 3
                     ORDER BY t.timestamp DESC
                     LIMIT 30
                 '''
@@ -1281,3 +1281,55 @@ def router_change_username_color(payload: field_1, user_id = Depends(get_current
         raise HTTPException(status_code=400, detail="Invalid HEX code for color. Must be this format: #000000 or #FFF")
     
     set_setting(user_id, "Username color", value)
+
+@router.post("/mnetwork/claim-vip")
+def router_claim_vip(request: Request, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=404, detail="User not found.")
+    
+    client_ip = (
+        request.headers.get("x-real-ip")
+        or request.headers.get("X-Forwarded-For")
+        or request.client.host
+    )
+
+    stored_ip = hash_ip(client_ip)
+    
+    with get_dict_connection("main") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET ip_address = %s WHERE id = %s", (stored_ip, user_id))
+            
+            client_info = get_user_information(user_id, conn)
+            client_email = client_info["email"]
+            client_username = client_info["username"]
+            client_premium = client_info["premium"]
+
+            if client_premium == 1:
+                raise HTTPException(status_code=400, detail="You already have claimed this!")
+
+            cursor.execute("SELECT email, ip_address FROM users WHERE invited_by = %s", (client_username,))
+            invited_users = cursor.fetchall()
+
+            valid_count = 0
+            seen_emails = set()
+            seen_ips = set()
+
+            for email, ip in invited_users:
+                if (
+                    email != client_email and 
+                    ip != stored_ip and 
+                    email not in seen_emails and 
+                    ip not in seen_ips
+                ):
+                    valid_count += 1
+                    seen_emails.add(email)
+                    seen_ips.add(ip)
+
+            if valid_count >= 3:
+                cursor.execute("UPDATE users SET premium = 1 WHERE id = %s", (user_id,))
+                add_badge(user_id, "vip")
+                conn.commit()
+                return { "status": "Congratulations! You now have the VIP pass. Enjoy :)" }
+            else:
+                conn.commit()
+                return { "message": "Sorry, but you do not have enough invites. Valid invites (creating accounts yourself does not count as valid invite): " +  str(valid_count) }

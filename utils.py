@@ -175,3 +175,13 @@ def set_json_settings(type, id, new_value):
         with conn.cursor() as cursor:
             cursor.execute("UPDATE extra_info SET %s = %s WHERE id = %s", (type, json.dumps(new_value), id))
             conn.commit()
+
+def add_badge(user_id, new_badge):
+    existing_badges = get_setting(user_id, "Badges")
+    try:
+        subject_badges = json.loads(existing_badges) if existing_badges else []
+    except json.JSONDecodeError:
+        subject_badges = []
+    if new_badge not in subject_badges:
+        subject_badges.append(new_badge)
+    set_setting(user_id, "Badges", json.dumps(subject_badges))

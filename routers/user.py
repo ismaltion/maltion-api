@@ -1,16 +1,13 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File, Request
 from fastapi.responses import JSONResponse
 from models import ChangeFieldRequest, ChangeDateRequest, ChangePasswordRequest, reportAbuse
-from auth import get_current_user_id, hash_password, check_password, create_session, validate_session, remove_session, remove_session_by_user_id, check_mclient_password
+from auth import get_current_user_id, hash_password, check_password, create_session, validate_session, hash_ip, remove_session, remove_session_by_user_id, check_mclient_password
 from db import get_connection, get_dict_connection
 from utils import get_user_information, send_notification
 from typing import Optional, List
 from datetime import date, datetime
 from config import UPLOAD_FOLDER, MAX_FILE_SIZE
-import os
-import json
-import re
-import traceback
+import os, json, re, traceback
 
 USERNAME_REGEX = r'^[a-zA-Z0-9_-]+$'
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -25,8 +22,15 @@ def register_user(
     displayName: Optional[str] = Body(None),
     birthday: date = Body(...),
     biography: Optional[str] = Body("No biography added."),
-    country: Optional[str] = Body("Antarctica")
-    ):
+    country: Optional[str] = Body("Antarctica"),
+    invited_by: Optional[str] = Body("System"),
+    request = Request
+):
+    client_ip = (
+    request.headers.get("x-real-ip")
+    or request.headers.get("X-Forwarded-For")
+    or request.client.host
+    )
 
     if not displayName:
         displayName = username
@@ -44,6 +48,8 @@ def register_user(
         raise HTTPException(status_code=400, detail="Display name must be between 4 and 20 characters long.")
     if len(country) > 32:
         raise HTTPException(status_code=400, detail="Country must be between 3 and 32 characters long.")
+    if len(invited_by) > 20:
+        invited_by = "System"
     # end of extensive checks    
 
     conn = get_connection()
@@ -54,7 +60,9 @@ def register_user(
         raise HTTPException(status_code=400, detail="Username already taken")
 
     hashed = hash_password(password)
-    cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, country) VALUES (%s, %s, %s, %s, %s, NOW(), %s, 0, NOW(), %s)", (username, hashed, email, displayName, birthday, biography, country))
+    stored_ip = hash_ip(client_ip)
+
+    cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, country, IP_address, invited_by) VALUES (%s, %s, %s, %s, %s, NOW(), %s, 0, NOW(), %s, %s, %s)", (username, hashed, email, displayName, birthday, biography, country, stored_ip, invited_by))
     conn.commit()
     cursor.close()
     conn.close()
@@ -444,21 +452,30 @@ def route_deleteAccount(payload: ChangeFieldRequest, user_id: int = Depends(get_
 
 @router.post("/upload-pfp")
 async def route_upload_image(user_id: int = Depends(get_current_user_id), file: UploadFile = File(...)):
+    user_info = None
     with get_connection() as conn:
         user_info = get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
-        
+
+    premium = user_info["premium"]
     contents = await file.read()
 
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File too large. Max size is 30 KB.")
-    
-    file_location = os.path.join(UPLOAD_FOLDER, user_info["username"] + ".jpg")
+
+    filename_lower = file.filename.lower()
+    if filename_lower.endswith(".gif"):
+        if premium != 1:
+            raise HTTPException(status_code=403, detail="GIF uploads are only allowed for premium users.")
+        file_location = os.path.join(UPLOAD_FOLDER, f"{user_info['username']}.gif")
+    else:
+        file_location = os.path.join(UPLOAD_FOLDER, f"{user_info['username']}.jpg")
+
     with open(file_location, "wb") as buffer:
         buffer.write(contents)
 
-    return { "filename": file.filename, "message": "Image uploaded successfully" }
+    return {"filename": file.filename, "message": "Image uploaded successfully"}
 
 @router.post("/report")
 def report_abuse(payload: reportAbuse, user_id = Depends(get_current_user_id)):

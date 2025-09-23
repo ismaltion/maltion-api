@@ -111,3 +111,6 @@ def check_mclient_password(password, hash):
     new_hash = hashlib.sha256(saltedpassword.encode()).hexdigest()
 
     return new_hash == hash
+
+def hash_ip(ip_addr):
+    return hashlib.sha512(ip_addr.encode()).hexdigest()
