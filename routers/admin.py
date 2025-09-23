@@ -159,6 +159,6 @@ def router_reports(payload: sendNotification, user_id: int = Depends(get_current
         notified_id = int(notified_info["id"])
         
         notify = notification("mnetwork", notified_content, 0, "admin_warning")
-        send_notification(notify)
+        send_notification(notified_id, notify)
 
         return { "reports": "Notification sent successfully." }
