@@ -1074,8 +1074,16 @@ def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
 
     following = False
     username_color = get_setting(user_id, "Username color")
-    if not username_color:
-        username_color = "#808080"
+
+    badges = get_setting(user_id, "Badges")
+    if badges:
+        try:
+            badges = json.loads(badges)
+        except json.JSONDecodeError:
+            badges = []
+    else:
+        badges = []
+
 
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
@@ -1089,7 +1097,7 @@ def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
                 if result3:
                     following = True
 
-            return { "profile": result1, "following": following, "follower_count": follower_count, "username_color": username_color }
+    return { "profile": result1, "following": following, "follower_count": follower_count, "username_color": username_color, "badges": badges }
         
 @router.post("/mnetwork/update-community-name")
 def router_update_community_name(payload: editCommunity, user_id = Depends(get_current_user_id)):

@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from auth import get_current_user_id
 from db import get_connection, get_dict_connection
-from utils import get_user_information, get_user_information_by_username, notification, send_notification
-from models import banning, unbanning, sendNotification
+from utils import get_user_information, get_user_information_by_username, notification, send_notification, get_setting, set_setting
+from models import banning, unbanning, sendNotification, addBadge
+import json
 
 router = APIRouter()
 
@@ -15,7 +16,7 @@ def router_reports(user_id: int = Depends(get_current_user_id)):
     with get_dict_connection("main") as conn:
         user_info = get_user_information(user_id)
         if not user_info:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="User not found.")
         trust = int(user_info.get("trust", 0))
 
         if trust < 10:
@@ -35,7 +36,7 @@ def router_get_report(id: int, user_id: int = Depends(get_current_user_id)):
     with get_dict_connection("main") as conn:
         user_info = get_user_information(user_id)
         if not user_info:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="User not found.")
         trust = int(user_info.get("trust", 0))
 
         if trust < 10:
@@ -46,7 +47,7 @@ def router_get_report(id: int, user_id: int = Depends(get_current_user_id)):
             result = cursor.fetchone()
 
             if not result:
-                raise HTTPException(status_code=404, detail="Report not found")
+                raise HTTPException(status_code=404, detail="Report not found.")
 
             content_result = None
             parent_id = result["parent_id"]
@@ -87,7 +88,7 @@ def router_reports(payload: banning, user_id: int = Depends(get_current_user_id)
     with get_dict_connection("main") as conn:
         user_info = get_user_information(user_id)
         if not user_info:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="User not found.")
         
         trust = user_info["trust"]
         print(trust)
@@ -97,7 +98,7 @@ def router_reports(payload: banning, user_id: int = Depends(get_current_user_id)
         
         banned_info = get_user_information_by_username(banned_username, conn)
         if not banned_info:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="User not found.")
         
         banned_id = int(banned_info["id"])
         with conn.cursor() as cursor:
@@ -116,7 +117,7 @@ def router_reports(payload: unbanning, user_id: int = Depends(get_current_user_i
     with get_dict_connection("main") as conn:
         user_info = get_user_information(user_id)
         if not user_info:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="User not found.")
         trust = int(user_info.get("trust", 0))
 
         if trust < 10:
@@ -124,7 +125,7 @@ def router_reports(payload: unbanning, user_id: int = Depends(get_current_user_i
         
         banned_info = get_user_information_by_username(banned_username, conn)
         if not banned_info:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="User not found.")
         
         banned_id = int(banned_info["id"])
         with conn.cursor() as cursor:
@@ -144,7 +145,7 @@ def router_reports(payload: sendNotification, user_id: int = Depends(get_current
     with get_dict_connection("main") as conn:
         user_info = get_user_information(user_id)
         if not user_info:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="User not found.")
         
         trust = user_info["trust"]
         print(trust)
@@ -154,7 +155,7 @@ def router_reports(payload: sendNotification, user_id: int = Depends(get_current
         
         notified_info = get_user_information_by_username(notified_username, conn)
         if not notified_info:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="User not found.")
         
         notified_id = int(notified_info["id"])
         
@@ -162,3 +163,41 @@ def router_reports(payload: sendNotification, user_id: int = Depends(get_current
         send_notification(notified_id, notify)
 
         return { "reports": "Notification sent successfully." }
+    
+@router.post("/admin/add-badge")
+def add_badge(payload: addBadge, user_id = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You must log in to do this action.")
+    
+    subject_username = payload.username
+    new_badge = payload.badge
+
+    with get_dict_connection("main") as conn:
+        user_info = get_user_information(user_id)
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found.")
+        
+        trust = int(user_info["trust"])
+        if trust < 10:
+            raise HTTPException(status_code=403, detail="You are not an admin.")
+        if trust < 20:
+            raise HTTPException(status_code=403, detail="You need higher permissions to do this")
+        
+        subject_info = get_user_information_by_username(subject_username, conn)
+        if not subject_info:
+            raise HTTPException(status_code=404, detail="User not found.")
+        
+        subject_id = int(subject_info["id"])
+
+        existing_badges = get_setting(subject_id, "Badges")
+        try:
+            subject_badges = json.loads(existing_badges) if existing_badges else []
+        except json.JSONDecodeError:
+            subject_badges = []
+
+        if new_badge not in subject_badges:
+            subject_badges.append(new_badge)
+
+        set_setting(subject_id, "Badges", json.dumps(subject_badges))
+
+        return {"detail": f"Badge '{new_badge}' added to {subject_username}"}
