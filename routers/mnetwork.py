@@ -321,6 +321,7 @@ def router_get_thread_posts(thread: int, user_id = Depends(get_current_user_id))
 
             for post in posts:
                 post["liked"] = post["id"] in liked_post_ids
+                post["extra_info"] = json.dumps(post["extra_info"])
 
     return {"posts": posts}
 
