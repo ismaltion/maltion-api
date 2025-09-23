@@ -112,7 +112,7 @@ def get_setting(user_id, setting, conn=None):
     try:
         result = None
         with conn.cursor() as cursor:
-            cursor.execute("SELECT setting_value FROM settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
+            cursor.execute("SELECT setting_value FROM user_settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
             result = cursor.fetchone()
 
         if result:
@@ -133,9 +133,9 @@ def set_setting(user_id, setting, value, conn=None, commit=True):
     try:
         with conn.cursor() as cursor:
             if value is None or value == "": # delete the setting if it's going to be empty
-                cursor.execute("DELETE FROM settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
+                cursor.execute("DELETE FROM user_settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
             else:
-                cursor.execute("INSERT INTO settings (user_id, setting_key, setting_value, last_updated) VALUES (%s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), last_updated = NOW()", (user_id, setting, value))
+                cursor.execute("INSERT INTO user_settings (user_id, setting_key, setting_value, last_updated) VALUES (%s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), last_updated = NOW()", (user_id, setting, value))
 
         if commit:
             conn.commit()
