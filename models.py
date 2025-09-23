@@ -104,3 +104,7 @@ class banning(BaseModel):
 
 class unbanning(BaseModel):
     username: str
+
+class sendNotification(BaseModel):
+    username: str
+    content: str

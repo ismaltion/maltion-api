@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from auth import get_current_user_id
 from db import get_connection, get_dict_connection
-from utils import get_user_information, get_user_information_by_username
-from models import banning, unbanning
+from utils import get_user_information, get_user_information_by_username, notification, send_notification
+from models import banning, unbanning, sendNotification
 
 router = APIRouter()
 
@@ -132,3 +132,33 @@ def router_reports(payload: unbanning, user_id: int = Depends(get_current_user_i
             conn.commit()
             
             return { "reports": "User unbanned successfully." }
+        
+@router.post("/admin/send-notification")
+def router_reports(payload: sendNotification, user_id: int = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You must log in to do this action.")
+    
+    notified_username = payload.username
+    notified_content = payload.content
+    
+    with get_dict_connection("main") as conn:
+        user_info = get_user_information(user_id)
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        trust = user_info["trust"]
+        print(trust)
+        trust = int(trust)
+        if trust < 10:
+            raise HTTPException(status_code=403, detail="You are not an admin.")
+        
+        notified_info = get_user_information_by_username(notified_username, conn)
+        if not notified_info:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        notified_id = int(notified_info["id"])
+        
+        notify = notification("mnetwork", notified_content, 0, "admin_warning")
+        send_notification(notify)
+
+        return { "reports": "Notification sent successfully." }
