@@ -275,20 +275,33 @@ def router_get_thread(thread: int, user_id = Depends(get_current_user_id)):
     liked = False
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
-            cursor.execute('''SELECT * FROM threads WHERE id = %s LIMIT 1''', (thread,))
+            cursor.execute('SELECT * FROM threads WHERE id = %s LIMIT 1', (thread,))
             result = cursor.fetchone()
-            community_id = result["community_id"]
-            cursor.execute('''SELECT * FROM communities WHERE id = %s LIMIT 1''', (community_id))
-            community_result = cursor.fetchone()
-            if result:
-                if user_id:
-                    cursor.execute('''SELECT id FROM thread_likes WHERE thread_id = %s AND author_id = %s LIMIT 1''', (thread, user_id))
-                    follow_result = cursor.fetchone()
-                    liked = bool(follow_result)
-            else:
+            if not result:
                 raise HTTPException(status_code=404, detail="Thread not found.")
-    
-    return {"thread": result, "community": community_result, "liked": liked}
+
+            try:
+                result["extra_info"] = json.loads(result.get("extra_info", "{}"))
+            except (TypeError, json.JSONDecodeError):
+                result["extra_info"] = {}
+
+            community_id = result["community_id"]
+            cursor.execute('SELECT * FROM communities WHERE id = %s LIMIT 1', (community_id,))
+            community_result = cursor.fetchone()
+
+            if user_id:
+                cursor.execute(
+                    'SELECT id FROM thread_likes WHERE thread_id = %s AND author_id = %s LIMIT 1',
+                    (thread, user_id)
+                )
+                follow_result = cursor.fetchone()
+                liked = bool(follow_result)
+
+    return {
+        "thread": result,
+        "community": community_result,
+        "liked": liked
+    }
 
 @router.get("/mnetwork/get-community-threads")
 def router_get_community_threads(community: int):
@@ -321,7 +334,10 @@ def router_get_thread_posts(thread: int, user_id = Depends(get_current_user_id))
 
             for post in posts:
                 post["liked"] = post["id"] in liked_post_ids
-                post["extra_info"] = json.dumps(post["extra_info"])
+                try:
+                    post["extra_info"] = json.loads(post["extra_info"])
+                except (TypeError, json.JSONDecodeError):
+                    post["extra_info"] = {}
 
     return {"posts": posts}
 
