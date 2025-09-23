@@ -158,7 +158,7 @@ async def router_create_post(
             cursor.execute(
                 '''INSERT INTO posts (thread_id, author_id, author_name, content, has_image, parent_post_id, extra_info) 
                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-                (thread_id, user_id, username, content, has_image, parent_post_id)
+                (thread_id, user_id, username, content, has_image, parent_post_id, extra_information)
             )
             post_id = cursor.fetchone()[0]
             cursor.execute('''UPDATE threads SET activity_detail = %s WHERE id = %s''', (f"{username} added a post.", thread_id,))
