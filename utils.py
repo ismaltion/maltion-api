@@ -132,16 +132,35 @@ def set_setting(user_id, setting, value, conn=None, commit=True):
 
     try:
         with conn.cursor() as cursor:
-            if value is None or value == "": # delete the setting if it's going to be empty
-                cursor.execute("DELETE FROM user_settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
+            if value is None or value == "":
+                cursor.execute(
+                    "DELETE FROM user_settings WHERE user_id = %s AND setting_key = %s",
+                    (user_id, setting),
+                )
             else:
-                cursor.execute("INSERT INTO user_settings (user_id, setting_key, setting_value, last_updated) VALUES (%s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), last_updated = NOW()", (user_id, setting, value))
+                cursor.execute(
+                    "SELECT COUNT(*) FROM user_settings WHERE user_id = %s AND setting_key = %s",
+                    (user_id, setting),
+                )
+                exists = cursor.fetchone()[0] > 0
+
+                if exists:
+                    cursor.execute(
+                        "UPDATE user_settings SET setting_value = %s, last_updated = NOW() WHERE user_id = %s AND setting_key = %s",
+                        (value, user_id, setting),
+                    )
+                else:
+                    cursor.execute(
+                        "INSERT INTO user_settings (user_id, setting_key, setting_value, last_updated) VALUES (%s, %s, %s, NOW())",
+                        (user_id, setting, value),
+                    )
 
         if commit:
             conn.commit()
     finally:
         if autoclose:
             conn.close()
+
 
 def get_json_settings(type, id):
     with get_connection("mnetwork") as conn:
