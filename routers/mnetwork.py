@@ -1056,6 +1056,9 @@ def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
                 raise HTTPException(status_code=404, detail="User not found.")
 
     following = False
+    username_color = get_setting(user_id, "Username color")
+    if not username_color:
+        username_color = "#808080"
 
     with get_dict_connection("mnetwork") as conn:
         with conn.cursor() as cursor:
@@ -1069,7 +1072,7 @@ def get_user_profile(user: str, author_id=Depends(get_current_user_id)):
                 if result3:
                     following = True
 
-            return { "profile": result1, "following": following, "follower_count": follower_count }
+            return { "profile": result1, "following": following, "follower_count": follower_count, "username_color": username_color }
         
 @router.post("/mnetwork/update-community-name")
 def router_update_community_name(payload: editCommunity, user_id = Depends(get_current_user_id)):
