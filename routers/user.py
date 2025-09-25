@@ -16,6 +16,7 @@ router = APIRouter()
 
 @router.post("/register")
 def register_user(
+    request: Request,
     username: str = Body(...),
     password: str = Body(...),
     email: str = Body(...),
@@ -24,7 +25,6 @@ def register_user(
     biography: Optional[str] = Body("No biography added."),
     country: Optional[str] = Body("Antarctica"),
     invited_by: Optional[str] = Body("System"),
-    request = Request
 ):
     client_ip = (
     request.headers.get("x-real-ip")

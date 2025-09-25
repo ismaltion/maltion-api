@@ -1282,8 +1282,20 @@ def router_change_username_color(payload: field_1, user_id = Depends(get_current
     
     set_setting(user_id, "Username color", value)
 
+def normalize_ip_value(ip_val):
+    if ip_val is None:
+        return None
+    if isinstance(ip_val, memoryview):
+        ip_val = bytes(ip_val)
+    if isinstance(ip_val, (bytes, bytearray)):
+        try:
+            return ip_val.decode('utf-8').rstrip('\x00')
+        except Exception:
+            return ip_val.hex()
+    return str(ip_val).strip()
+
 @router.post("/mnetwork/claim-vip")
-def router_claim_vip(request: Request, user_id = Depends(get_current_user_id)):
+def router_claim_vip(request: Request, user_id=Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=404, detail="User not found.")
     
@@ -1294,10 +1306,14 @@ def router_claim_vip(request: Request, user_id = Depends(get_current_user_id)):
     )
 
     stored_ip = hash_ip(client_ip)
+    stored_ip_norm = normalize_ip_value(stored_ip)
     
     with get_dict_connection("main") as conn:
         with conn.cursor() as cursor:
-            cursor.execute("UPDATE users SET ip_address = %s WHERE id = %s", (stored_ip, user_id))
+            cursor.execute(
+                "UPDATE users SET ip_address = %s WHERE id = %s",
+                (stored_ip_norm, user_id)
+            )
             
             client_info = get_user_information(user_id, conn)
             client_email = client_info["email"]
@@ -1307,32 +1323,38 @@ def router_claim_vip(request: Request, user_id = Depends(get_current_user_id)):
             if client_premium == 1:
                 raise HTTPException(status_code=400, detail="You already have claimed this!")
 
-            cursor.execute("SELECT email, ip_address FROM users WHERE invited_by = %s", (client_username,))
+            cursor.execute(
+                "SELECT email, ip_address FROM users WHERE invited_by = %s",
+                (client_username,)
+            )
             invited_users = cursor.fetchall()
 
             valid_count = 0
             seen_emails = set()
             seen_ips = set()
 
-            for email, ip in invited_users:
-                if (
-                    email != client_email and 
-                    ip != stored_ip and 
-                    email not in seen_emails and 
-                    ip not in seen_ips
-                ):
-                    valid_count += 1
-                    seen_emails.add(email)
-                    seen_ips.add(ip)
+            for row in invited_users:
+                email = row["email"]
+                ip = normalize_ip_value(row["ip_address"])
+
+                if ip == stored_ip_norm:
+                    continue
+
+                if email == client_email or email in seen_emails or ip in seen_ips:
+                    continue
+
+                valid_count += 1
+                seen_emails.add(email)
+                seen_ips.add(ip)
 
             if valid_count >= 3:
-                cursor.execute("UPDATE users SET premium = 1 WHERE id = %s", (user_id,))
+                cursor.execute(
+                    "UPDATE users SET premium = 1 WHERE id = %s",
+                    (user_id,)
+                )
                 add_badge(user_id, "vip")
                 conn.commit()
-                return { "status": "Congratulations! You now have the VIP pass. Enjoy :)" }
-            else:
-                conn.commit()
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Sorry, but you do not have enough invites. Valid invites (creating accounts yourself does not count as valid invite): {valid_count}"
-                )
+                return {"status": "Congratulations! You now have the VIP pass. Enjoy :)"}
+            
+            conn.commit()
+            return JSONResponse(status_code=400, content={"detail": "Sorry, but you do not have enough valid invites", "invites": valid_count})
