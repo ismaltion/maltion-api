@@ -13,12 +13,12 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     clients.append(websocket)
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT author, content, timestamp FROM chat ORDER BY timestamp DESC LIMIT 20")
-    history = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    conn = await get_connection()
+    cursor = await conn.cursor()
+    await cursor.execute("SELECT author, content, timestamp FROM chat ORDER BY timestamp DESC LIMIT 20")
+    history = await cursor.fetchall()
+    await cursor.close()
+    await conn.close()
 
     for username, message, timestamp in reversed(history):
         await websocket.send_text(json.dumps({
@@ -66,15 +66,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
 
                 # Save message to DB
-                conn = get_connection()
-                cursor = conn.cursor()
-                cursor.execute(
+                conn = await get_connection()
+                cursor = await conn.cursor()
+                await cursor.execute(
                     "INSERT INTO chat (author, content, addressee, timestamp) VALUES (%s, %s, %s, NOW())",
                     (username, message, addressee)
                 )
-                conn.commit()
-                cursor.close()
-                conn.close()
+                await conn.commit()
+                await cursor.close()
+                await conn.close()
 
                 broadcast_message = json.dumps({
                     "type": "message",

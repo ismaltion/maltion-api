@@ -15,7 +15,7 @@ EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 router = APIRouter()
 
 @router.post("/register")
-def register_user(
+async def register_user(
     request: Request,
     username: str = Body(...),
     password: str = Body(...),
@@ -52,25 +52,24 @@ def register_user(
         invited_by = "System"
     # end of extensive checks    
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
-    if cursor.fetchone():
-        raise HTTPException(status_code=400, detail="Username already taken")
+    async with get_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Username already taken")
 
     hashed = hash_password(password)
     stored_ip = hash_ip(client_ip)
 
-    cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, country, IP_address, invited_by) VALUES (%s, %s, %s, %s, %s, NOW(), %s, 0, NOW(), %s, %s, %s)", (username, hashed, email, displayName, birthday, biography, country, stored_ip, invited_by))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    await cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, country, IP_address, invited_by) VALUES (%s, %s, %s, %s, %s, NOW(), %s, 0, NOW(), %s, %s, %s)", (username, hashed, email, displayName, birthday, biography, country, stored_ip, invited_by))
+    await conn.commit()
+    await cursor.close()
+    await conn.close()
 
     return {"message": "User registered"}
 
 @router.post("/mclient-migration")
-def mclient_migration(
+async def mclient_migration(
     username: str = Body(...),
     password: str = Body(...),
     displayName: Optional[str] = Body(None),
@@ -97,11 +96,11 @@ def mclient_migration(
     # end of extensive checks    
 
     # start of getting information from mclient database
-    with get_dict_connection("mclient") as conn:
-        with conn.cursor() as cursor:
+    async with get_dict_connection("mclient") as conn:
+        async with conn.cursor() as cursor:
             try:
-                cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
-                result = cursor.fetchone()
+                await cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+                result = await cursor.fetchone()
                 if not result:
                     return JSONResponse(status_code=404, content={"detail": "MClient account not found."})
                 
@@ -111,8 +110,8 @@ def mclient_migration(
 
                 mclient_hash = result["password"]
                 if not check_mclient_password(password, mclient_hash):
-                    cursor.execute("UPDATE users SET loginattempts = %s WHERE username = %s", (login_attempts + 1, username))
-                    conn.commit()
+                    await cursor.execute("UPDATE users SET loginattempts = %s WHERE username = %s", (login_attempts + 1, username))
+                    await conn.commit()
                     return JSONResponse(status_code=403, content={"detail": "Incorrect password."})
 
                 email = result["email"]
@@ -130,64 +129,62 @@ def mclient_migration(
 
     # end of getting information from mclient database
 
-    with get_dict_connection("main") as conn:
+    async with get_dict_connection("main") as conn:
         with conn.cursor() as cursor:
             try:
-                cursor.execute("SELECT id, mclient_reserved FROM users WHERE username = %s", (username,))
-                result = cursor.fetchone()
+                await cursor.execute("SELECT id, mclient_reserved FROM users WHERE username = %s", (username,))
+                result = await cursor.fetchone()
                 hashed = hash_password(password)
                 if result:
                     mclient_reserved = result["mclient_reserved"]
                     new_account_id = result["id"]
                     if mclient_reserved == 1:
-                        cursor.execute("UPDATE users SET password = %s, email = %s, displayName = %s, birthday = %s, createdOn = NOW(), biography = %s, loginAttempts = 0, lastInteraction = NOW(), country = %s WHERE username = %s", (hashed, email, displayName, birthday, biography, country, username))
+                        await cursor.execute("UPDATE users SET password = %s, email = %s, displayName = %s, birthday = %s, createdOn = NOW(), biography = %s, loginAttempts = 0, lastInteraction = NOW(), country = %s WHERE username = %s", (hashed, email, displayName, birthday, biography, country, username))
                     else:
                         return JSONResponse(status_code=401, content={"detail": "There's an already registered account with your username which isn't yours. You will need to change your username to migrate your account, which requires the assistance of support."})
                 else:
-                    cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, country) VALUES (%s, %s, %s, %s, %s, NOW(), %s, 0, NOW(), %s)", (username, hashed, email, displayName, birthday, biography, country))
+                    await cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, country) VALUES (%s, %s, %s, %s, %s, NOW(), %s, 0, NOW(), %s)", (username, hashed, email, displayName, birthday, biography, country))
                     new_account_id = cursor.lastrowid
 
-                conn.commit()
+                await conn.commit()
             except Exception as e:
-                conn.rollback()
+                await conn.rollback()
                 return JSONResponse(status_code=500, content={"detail": f"Internal server error. Details: Failed on step 2/4 (Transferring account): {e} {traceback.format_exc()}"})
     
     if new_account_id:
-         with get_connection("mnetwork") as conn:
-            with conn.cursor() as cursor:
+         async with get_connection("mnetwork") as conn:
+            async with conn.cursor() as cursor:
                 try:
-                    cursor.execute("UPDATE posts SET author_id = %s WHERE author_name = %s", (new_account_id, username))
-                    cursor.execute("UPDATE threads SET author_id = %s WHERE author_name = %s", (new_account_id, username))
-                    conn.commit()
+                    await cursor.execute("UPDATE posts SET author_id = %s WHERE author_name = %s", (new_account_id, username))
+                    await cursor.execute("UPDATE threads SET author_id = %s WHERE author_name = %s", (new_account_id, username))
+                    await conn.commit()
                 except Exception as e:
-                    conn.rollback()
+                    await conn.rollback()
                     return JSONResponse(status_code=500, content={"detail": f"Internal server error. Details: Failed on step 3/4 (Migrating MNetwork ownerships - Your account was migrated, though, but you can try to migrate it again to solve this issue.): {e} {traceback.format_exc()}"})
 
-    with get_connection("mclient") as conn:
-        with conn.cursor() as cursor:
+    async with get_connection("mclient") as conn:
+        async with conn.cursor() as cursor:
             try:
-                cursor.execute("UNLOCK TABLES")
-                cursor.execute("UPDATE users SET migrated = 1 WHERE username = %s", (username,))
-                conn.commit()
+                await cursor.execute("UNLOCK TABLES")
+                await cursor.execute("UPDATE users SET migrated = 1 WHERE username = %s", (username,))
+                await conn.commit()
             except Exception as e:
-                conn.rollback()
+                await conn.rollback()
                 return JSONResponse(status_code=500, content={"detail": f"Internal server error. Details: {e}"})
     
     return {"message": "User migrated successfully."}
 
 @router.post("/login")
-def route_login_user(username: str = Body(...), password: str = Body(...)):
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT id, password, mclient_reserved FROM users WHERE username = %s", (username,))
-            user = cursor.fetchone()
+async def route_login_user(username: str = Body(...), password: str = Body(...)):
+    async with get_connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT id, password, mclient_reserved FROM users WHERE username = %s", (username,))
+            user = await cursor.fetchone()
 
             if not user:
                 raise HTTPException(status_code=401, detail="Invalid credentials")
 
             user_id, hashed, mclient_reserved = user
-            #if mclient_reserved == 1:
-                #raise HTTPException(status_code=401, detail="This account is an MClient account. Please migrate it first through mclient.maltion.com to use it here.")
             
             if not check_password(password, hashed):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -205,22 +202,22 @@ def route_login_user(username: str = Body(...), password: str = Body(...)):
     return response
 
 @router.post("/logoff")
-def route_logoff_user(session_token: str = Cookie(None)):
+async def route_logoff_user(session_token: str = Cookie(None)):
     if not session_token:
         raise HTTPException(status_code=400, detail="Session token missing")
 
-    with get_connection() as conn:
-        remove_session(conn, session_token)
+    async with get_connection() as conn:
+        await remove_session(conn, session_token)
 
     response = Response(content='{"message": "Logoff successful"}', media_type="application/json")
     response.delete_cookie("session_token")
     return response
 
 @router.get("/get-user-info")
-def route_getUserInfo(user_id: int = Depends(get_current_user_id)):
-    conn = get_connection()
-    user_info = get_user_information(user_id, conn)
-    conn.close()
+async def route_getUserInfo(user_id: int = Depends(get_current_user_id)):
+    conn = await get_connection()
+    user_info = await get_user_information(user_id, conn)
+    await conn.close()
 
     if not user_info:
         raise HTTPException(status_code=404, detail="User not found")
@@ -228,16 +225,16 @@ def route_getUserInfo(user_id: int = Depends(get_current_user_id)):
     return {"userinfo": user_info}
 
 @router.get("/get-username")
-def route_getUsername(user_id: int = Depends(get_current_user_id)):
-    with get_dict_connection("main") as conn:
-        user_info = get_user_information(user_id, conn)
+async def route_getUsername(user_id: int = Depends(get_current_user_id)):
+    async with get_dict_connection("main") as conn:
+        user_info = await get_user_information(user_id, conn)
 
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found")
 
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM bans WHERE user_id = %s AND module = %s", (user_id, "MNetwork"))
-            result = cursor.fetchone()
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM bans WHERE user_id = %s AND module = %s", (user_id, "MNetwork"))
+            result = await cursor.fetchone()
             banned = False
             if result:
                 banned = True
@@ -245,9 +242,9 @@ def route_getUsername(user_id: int = Depends(get_current_user_id)):
             return {"username": user_info["username"], "trust": user_info["trust"], "banned": banned}
 
 @router.get("/check-login")
-def route_check_login(user_id: int = Depends(get_current_user_id)):
-    with get_connection() as conn:
-        user_info = get_user_information(user_id, conn)
+async def route_check_login(user_id: int = Depends(get_current_user_id)):
+    async with get_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
 
     if not user_info:
         return "false"
@@ -255,15 +252,15 @@ def route_check_login(user_id: int = Depends(get_current_user_id)):
     return "true"
 
 @router.get("/get-settings")
-def route_getSettings(user_id: int = Depends(get_current_user_id)):
-    with get_connection() as conn:
-        user_info = get_user_information(user_id, conn)
+async def route_getSettings(user_id: int = Depends(get_current_user_id)):
+    async with get_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
 
-        with conn.cursor() as cursor:
-            cursor.execute('''SELECT settings FROM users WHERE username = %s''', (user_info["username"],))
-            result = cursor.fetchone()
+        async with conn.cursor() as cursor:
+            await cursor.execute('''SELECT settings FROM users WHERE username = %s''', (user_info["username"],))
+            result = await cursor.fetchone()
 
             if result:
                 return json.loads(result[0])
@@ -271,23 +268,23 @@ def route_getSettings(user_id: int = Depends(get_current_user_id)):
                 raise HTTPException(status_code=404, detail="Settings not found")
 
 @router.post("/update-settings")
-def route_updateSettings(user_id: int = Depends(get_current_user_id), settings: dict = Body(...)): # settings are supposed to be a json object
-    with get_connection() as conn:
-        user_info = get_user_information(user_id, conn)
+async def route_updateSettings(user_id: int = Depends(get_current_user_id), settings: dict = Body(...)): # settings are supposed to be a json object
+    async with get_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
         
         settings_json = json.dumps(settings)
-        with conn.cursor() as cursor:
-            cursor.execute('''UPDATE users SET settings = %s WHERE username = %s''', (settings_json, user_info["username"]))
-            conn.commit()
+        async with conn.cursor() as cursor:
+            await cursor.execute('''UPDATE users SET settings = %s WHERE username = %s''', (settings_json, user_info["username"]))
+            await conn.commit()
     
     return Response(status_code=200)
 
 @router.post("/change-username")
-def route_changeUsername(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    with get_connection() as conn:
-        user_info = get_user_information(user_id, conn)
+async def route_changeUsername(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
+    async with get_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
@@ -296,12 +293,12 @@ def route_changeUsername(payload: ChangeFieldRequest, user_id: int = Depends(get
         if len(newUsername) < 4 or len(newUsername) > 20 or " " in newUsername:
             raise HTTPException(status_code=400, detail="Invalid username. Must be between 4 and 20 characters long with no spaces")
         
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT id FROM users WHERE username = %s", (newUsername,))
-            if cursor.fetchone():
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT id FROM users WHERE username = %s", (newUsername,))
+            if await cursor.fetchone():
                 raise HTTPException(status_code=400, detail="Username already taken")
-            cursor.execute('''UPDATE users SET username = %s WHERE id = %s''', (newUsername, user_id))
-            conn.commit()
+            await cursor.execute('''UPDATE users SET username = %s WHERE id = %s''', (newUsername, user_id))
+            await conn.commit()
 
         oldFilename = "../uploads/pfp/" + user_info["username"] + ".jpg"
         newFilename = "../uploads/pfp/" + newUsername + ".jpg"
@@ -311,9 +308,9 @@ def route_changeUsername(payload: ChangeFieldRequest, user_id: int = Depends(get
     return Response(status_code=200)
 
 @router.post("/change-nickname")
-def route_changeNickname(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    with get_connection() as conn:
-        user_info = get_user_information(user_id, conn)
+async def route_changeNickname(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
+    async with get_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
@@ -322,16 +319,16 @@ def route_changeNickname(payload: ChangeFieldRequest, user_id: int = Depends(get
         if len(newNickname) < 4 or len(newNickname) > 20:
             raise HTTPException(status_code=400, detail="Invalid display name. Must be between 4 and 20 characters long.")
         
-        with conn.cursor() as cursor:
-            cursor.execute('''UPDATE users SET displayName = %s WHERE id = %s''', (newNickname, user_id))
-            conn.commit()
+        async with conn.cursor() as cursor:
+            await cursor.execute('''UPDATE users SET displayName = %s WHERE id = %s''', (newNickname, user_id))
+            await conn.commit()
     
     return Response(status_code=200)
 
 @router.post("/change-country")
-def route_changeCountry(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    with get_connection() as conn:
-        user_info = get_user_information(user_id, conn)
+async def route_changeCountry(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
+    async with get_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
@@ -340,32 +337,32 @@ def route_changeCountry(payload: ChangeFieldRequest, user_id: int = Depends(get_
         if len(newCountry) < 3 or len(newCountry) > 32:
             raise HTTPException(status_code=400, detail="Invalid country. Must be between 3 and 32 characters.")
         
-        with conn.cursor() as cursor:
-            cursor.execute('''UPDATE users SET country = %s WHERE id = %s''', (newCountry, user_id))
-            conn.commit()
+        async with conn.cursor() as cursor:
+            await cursor.execute('''UPDATE users SET country = %s WHERE id = %s''', (newCountry, user_id))
+            await conn.commit()
     
     return Response(status_code=200)
 
 @router.post("/change-birthday")
-def route_changeBirthday(payload: ChangeDateRequest, user_id: int = Depends(get_current_user_id)):
-    with get_connection() as conn:
-        user_info = get_user_information(user_id, conn)
+async def route_changeBirthday(payload: ChangeDateRequest, user_id: int = Depends(get_current_user_id)):
+    async with get_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
         
         newBirthday = newValue
         
-        with conn.cursor() as cursor:
-            cursor.execute('''UPDATE users SET birthday = %s WHERE id = %s''', (newBirthday, user_id))
-            conn.commit()
+        async with conn.cursor() as cursor:
+            await cursor.execute('''UPDATE users SET birthday = %s WHERE id = %s''', (newBirthday, user_id))
+            await conn.commit()
     
     return Response(status_code=200)
 
 @router.post("/change-email")
-def route_changeEmail(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    with get_connection() as conn:
-        user_info = get_user_information(user_id, conn)
+async def route_changeEmail(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
+    async with get_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
@@ -374,16 +371,16 @@ def route_changeEmail(payload: ChangeFieldRequest, user_id: int = Depends(get_cu
         if len(newEmail) < 5 or len(newEmail) > 320 or " " in newEmail or not "@" in newEmail or not "." in newEmail:
             raise HTTPException(status_code=400, detail="Invalid email address.")
         
-        with conn.cursor() as cursor:
-            cursor.execute('''UPDATE users SET email = %s WHERE id = %s''', (newValue, user_id))
-            conn.commit()
+        async with conn.cursor() as cursor:
+            await cursor.execute('''UPDATE users SET email = %s WHERE id = %s''', (newValue, user_id))
+            await conn.commit()
     
     return Response(status_code=200)
 
 @router.post("/change-biography")
-def route_changeBiography(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    with get_connection() as conn:
-        user_info = get_user_information(user_id, conn)
+async def route_changeBiography(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
+    async with get_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
@@ -392,17 +389,17 @@ def route_changeBiography(payload: ChangeFieldRequest, user_id: int = Depends(ge
         if len(newBiography) < 5 or len(newBiography) > 1000:
             raise HTTPException(status_code=400, detail="Too long biography")
         
-        with conn.cursor() as cursor:
-            cursor.execute('''UPDATE users SET biography = %s WHERE id = %s''', (newValue, user_id))
-            conn.commit()
+        async with conn.cursor() as cursor:
+            await cursor.execute('''UPDATE users SET biography = %s WHERE id = %s''', (newValue, user_id))
+            await conn.commit()
     
     return Response(status_code=200)
 
 @router.post("/change-password")
-def route_changePassword(payload: ChangePasswordRequest, user_id: int = Depends(get_current_user_id)):
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            user_info = get_user_information(user_id, conn)
+async def route_changePassword(payload: ChangePasswordRequest, user_id: int = Depends(get_current_user_id)):
+    async with get_connection() as conn:
+        async with conn.cursor() as cursor:
+            user_info = await get_user_information(user_id, conn)
             oldValue = payload.oldValue
             newValue = payload.newValue
             if not user_info:
@@ -410,8 +407,8 @@ def route_changePassword(payload: ChangePasswordRequest, user_id: int = Depends(
 
             oldPassword = str(oldValue)
 
-            cursor.execute('''SELECT password FROM users WHERE id = %s''', (user_id,))
-            result = cursor.fetchone()
+            await cursor.execute('''SELECT password FROM users WHERE id = %s''', (user_id,))
+            result = await cursor.fetchone()
             hashed = result[0]
             if not check_password(oldPassword, hashed):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -420,31 +417,31 @@ def route_changePassword(payload: ChangePasswordRequest, user_id: int = Depends(
             if len(newPassword) < 6 or len(newPassword) > 64:
                 raise HTTPException(status_code=400, detail="Invalid password. Must be at least 6 characters long.")
             
-            cursor.execute('''UPDATE users SET password = %s WHERE id = %s''', (newPassword, user_id))
-            conn.commit()
+            await cursor.execute('''UPDATE users SET password = %s WHERE id = %s''', (newPassword, user_id))
+            await conn.commit()
     return Response(status_code=200)
 
 @router.post("/delete-account")
-def route_deleteAccount(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            user_info = get_user_information(user_id, conn)
+async def route_deleteAccount(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
+    async with get_connection() as conn:
+        async with conn.cursor() as cursor:
+            user_info = await get_user_information(user_id, conn)
             currentPassword = payload.value
             if not user_info:
                 raise HTTPException(status_code=404, detail="User not found - You need to login first.")
 
             password = str(currentPassword)
 
-            cursor.execute('''SELECT password FROM users WHERE id = %s''', (user_id,))
-            result = cursor.fetchone()
+            await cursor.execute('''SELECT password FROM users WHERE id = %s''', (user_id,))
+            result = await cursor.fetchone()
             hashed = result[0]
             if not check_password(password, hashed):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
             
-            cursor.execute('''DELETE FROM users WHERE id = %s''', (user_id,))
-            conn.commit()
+            await cursor.execute('''DELETE FROM users WHERE id = %s''', (user_id,))
+            await conn.commit()
 
-        remove_session_by_user_id(conn, user_id)
+        await remove_session_by_user_id(conn, user_id)
 
     response = Response(content='{"message": "Account deletion successful"}', media_type="application/json")
     response.delete_cookie("session_token")
@@ -453,8 +450,8 @@ def route_deleteAccount(payload: ChangeFieldRequest, user_id: int = Depends(get_
 @router.post("/upload-pfp")
 async def route_upload_image(user_id: int = Depends(get_current_user_id), file: UploadFile = File(...)):
     user_info = None
-    with get_connection() as conn:
-        user_info = get_user_information(user_id, conn)
+    async with get_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
 
@@ -478,7 +475,7 @@ async def route_upload_image(user_id: int = Depends(get_current_user_id), file: 
     return {"filename": file.filename, "message": "Image uploaded successfully"}
 
 @router.post("/report")
-def report_abuse(payload: reportAbuse, user_id = Depends(get_current_user_id)):
+async def report_abuse(payload: reportAbuse, user_id = Depends(get_current_user_id)):
     module = payload.module
     reason = payload.reason
     content_type = payload.type
@@ -486,65 +483,65 @@ def report_abuse(payload: reportAbuse, user_id = Depends(get_current_user_id)):
     details = payload.detail
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
-    with get_connection("main") as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("INSERT INTO reports (parent_id, parent_module, parent_type, author_id, type, content) VALUES (%s, %s, %s, %s, %s, %s)", (content_id, module, content_type, user_id, reason, details))
-            conn.commit()
+    async with get_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("INSERT INTO reports (parent_id, parent_module, parent_type, author_id, type, content) VALUES (%s, %s, %s, %s, %s, %s)", (content_id, module, content_type, user_id, reason, details))
+            await conn.commit()
             return { "message": "Success" }
         
 @router.get("/notifications")
-def get_notifications(user_id = Depends(get_current_user_id)):
+async def get_notifications(user_id = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
     
-    with get_dict_connection("main") as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM notifications WHERE user_id = %s ORDER BY timestamp DESC LIMIT 50", (user_id,))
-            result = cursor.fetchall()
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM notifications WHERE user_id = %s ORDER BY timestamp DESC LIMIT 50", (user_id,))
+            result = await cursor.fetchall()
 
-            cursor.execute("UPDATE notifications SET is_read = 1 WHERE user_id = %s", (user_id,))
-            conn.commit()
+            await cursor.execute("UPDATE notifications SET is_read = 1 WHERE user_id = %s", (user_id,))
+            await conn.commit()
 
             return { "notifications": result }
         
 @router.get("/notifications-preview")
-def get_notifications_preview(user_id = Depends(get_current_user_id)):
+async def get_notifications_preview(user_id = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
     
-    with get_dict_connection("main") as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id = %s AND is_read = 0", (user_id,))
-            result = cursor.fetchone()
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id = %s AND is_read = 0", (user_id,))
+            result = await cursor.fetchone()
             
             notification_count = result["cnt"]
 
             return { "notifications": notification_count }
         
 @router.post("/accept-admin")
-def accept_admin(user_id = Depends(get_current_user_id)):
+async def accept_admin(user_id = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
     
-    with get_dict_connection("main") as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("UPDATE users SET trust = 10 WHERE id = %s AND trust = 9", (user_id,))
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("UPDATE users SET trust = 10 WHERE id = %s AND trust = 9", (user_id,))
 
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=403, detail="You are not invited to become an administrator.")
 
-            conn.commit()
+            await conn.commit()
 
             return { "message": "You are now an administrator" }
         
 @router.get("/get-ban")
-def router_get_ban(user_id = Depends(get_current_user_id)):
+async def router_get_ban(user_id = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
     
-    with get_dict_connection("main") as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM bans WHERE user_id = %s LIMIT 1", (user_id,))
-            result = cursor.fetchone()
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM bans WHERE user_id = %s LIMIT 1", (user_id,))
+            result = await cursor.fetchone()
 
             return {"ban": result or None}

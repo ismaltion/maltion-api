@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from models import WrongDatabase
-import pymysql
+from contextlib import asynccontextmanager
+import asyncmy
 import os
 
 load_dotenv()
@@ -13,61 +14,75 @@ DB_MNETWORK_NAME = os.getenv("DB_MNETWORK_NAME")
 DB_MCLIENT_NAME = os.getenv("DB_MCLIENT_NAME")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-def get_connection(database = "main"):
+
+@asynccontextmanager
+async def get_connection(database: str = "main"):
     if database == "main":
-        return pymysql.connect(
+        conn = await asyncmy.connect(
             host=DB_HOST,
             user=DB_USER,
             password=DB_PASSWORD,
             database=DB_MAIN_NAME,
-            cursorclass=pymysql.cursors.Cursor
+            cursorclass=asyncmy.cursors.Cursor,
         )
     elif database == "mnetwork":
-        return pymysql.connect(
+        conn = await asyncmy.connect(
             host=DB_HOST,
             user=DB_USER,
             password=DB_PASSWORD,
             database=DB_MNETWORK_NAME,
-            cursorclass=pymysql.cursors.Cursor
+            cursorclass=asyncmy.cursors.Cursor,
         )
     elif database == "mclient":
-        return pymysql.connect(
+        conn = await asyncmy.connect(
             host=DB_HOST,
             user=DB_USER,
             password=DB_PASSWORD,
             database=DB_MCLIENT_NAME,
-            cursorclass=pymysql.cursors.Cursor
+            cursorclass=asyncmy.cursors.Cursor,
         )
     else:
         raise WrongDatabase
-    
-def get_dict_connection(database = "main"):
+    try:
+        yield conn
+    finally:
+        await conn.ensure_closed()
+
+
+@asynccontextmanager
+async def get_dict_connection(database: str = "main"):
     if database == "main":
-        return pymysql.connect(
+        conn = await asyncmy.connect(
             host=DB_HOST,
             user=DB_USER,
             password=DB_PASSWORD,
             database=DB_MAIN_NAME,
-            cursorclass=pymysql.cursors.DictCursor
+            cursorclass=asyncmy.cursors.DictCursor,
         )
     elif database == "mnetwork":
-        return pymysql.connect(
+        conn = await asyncmy.connect(
             host=DB_HOST,
             user=DB_USER,
             password=DB_PASSWORD,
             database=DB_MNETWORK_NAME,
-            cursorclass=pymysql.cursors.DictCursor
+            cursorclass=asyncmy.cursors.DictCursor,
         )
     elif database == "mclient":
-        return pymysql.connect(
+        conn = await asyncmy.connect(
             host=DB_HOST,
             user=DB_USER,
             password=DB_PASSWORD,
             database=DB_MCLIENT_NAME,
-            cursorclass=pymysql.cursors.DictCursor
+            cursorclass=asyncmy.cursors.DictCursor,
         )
     else:
         raise WrongDatabase
-    
+
+    try:
+        yield conn
+    finally:
+        await conn.ensure_closed()
+
+
 def get_google_api_key():
     return GOOGLE_API_KEY

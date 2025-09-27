@@ -1,21 +1,20 @@
 from db import get_connection, get_dict_connection
 from datetime import datetime, timedelta
 from fastapi import HTTPException
-import pymysql
 import json
 
-def get_user_information(user_id, conn=None):
+async def get_user_information(user_id, conn=None):
     autoclose = False
     if not conn:
-        conn = get_dict_connection("main")
+        conn = await get_dict_connection("main")
         autoclose = True
-    with conn.cursor(pymysql.cursors.DictCursor) as cursor:
-        cursor.execute("""
+    async with conn.cursor() as cursor:
+        await cursor.execute("""
         SELECT username, email, displayName, birthday, createdOn, trust, banned, biography, 
                loginAttempts, lastInteraction, country, friends, premium
         FROM users WHERE id = %s
     """, (user_id,))
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
 
     if not row:
         return None
@@ -27,22 +26,21 @@ def get_user_information(user_id, conn=None):
     else:
         user_info["friends"] = []
     if autoclose:
-        conn.close()
+        conn.ensure_closed()
     return user_info
 
-def get_user_information_by_username(username, conn=None):
+async def get_user_information_by_username(username, conn=None):
     autoclose = False
     if not conn:
-        conn = get_dict_connection("main")
+        conn = await get_dict_connection("main")
         autoclose = True
-    with conn.cursor(pymysql.cursors.DictCursor) as cursor:
-        cursor.execute("""
+    async with conn.cursor() as cursor:
+        await cursor.execute("""
         SELECT id, username, email, displayName, birthday, createdOn, trust, banned, biography, 
                loginAttempts, lastInteraction, country, friends, premium
         FROM users WHERE username = %s
     """, (username,))
-        row = cursor.fetchone()
-        cursor.close()
+        row = await cursor.fetchone()
 
         if not row:
             return None
@@ -54,30 +52,30 @@ def get_user_information_by_username(username, conn=None):
         else:
             user_info["friends"] = []
         if autoclose:
-            conn.close()
+            conn.ensure_closed()
         return user_info
     
-def send_notification(user_id, notification, conn = None):
+async def send_notification(user_id, notification, conn = None):
     autoclose = False
     if not conn:
-        conn = get_connection("main")
+        conn = await get_connection("main")
         autoclose = True
     
-    with conn.cursor() as cursor:
-        cursor.execute("INSERT INTO notifications (user_id, type, content, reference_id, reference_type) VALUES (%s, %s, %s, %s, %s)", (user_id, notification.get("type"), notification.get("content"), notification.get("reference_id"), notification.get("reference_type")))
-        conn.commit()
+    async with conn.cursor() as cursor:
+        await cursor.execute("INSERT INTO notifications (user_id, type, content, reference_id, reference_type) VALUES (%s, %s, %s, %s, %s)", (user_id, notification.get("type"), notification.get("content"), notification.get("reference_id"), notification.get("reference_type")))
+        await conn.commit()
 
     if autoclose:
-        conn.close()
+        conn.ensure_closed()
 
 def notification(type, content, reference_id, reference_type):
     return { "type": type, "content": content, "reference_id": reference_id, "reference_type": reference_type}
 
-def rate_limiter(user_id):
-    with get_dict_connection("main") as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT last_mnetwork_interaction FROM users WHERE id = %s", (user_id,))
-            result = cursor.fetchone()
+async def rate_limiter(user_id):
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT last_mnetwork_interaction FROM users WHERE id = %s", (user_id,))
+            result = await cursor.fetchone()
 
             if not result:
                 raise Exception(f"User not found: ID{user_id}")
@@ -88,32 +86,32 @@ def rate_limiter(user_id):
 
             if utcnow > last_interaction:
                 later = utcnow + timedelta(seconds=10)
-                cursor.execute("UPDATE users SET last_mnetwork_interaction = %s WHERE id = %s", (later, user_id,))
-                conn.commit()
+                await cursor.execute("UPDATE users SET last_mnetwork_interaction = %s WHERE id = %s", (later, user_id,))
+                await conn.commit()
                 return True
             else:
                 return False
             
-def check_ban(user_id, module="main"):
-    with get_dict_connection("main") as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM bans WHERE user_id = %s AND module = %s", (user_id, module))
-            result = cursor.fetchone()
+async def check_ban(user_id, module="main"):
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM bans WHERE user_id = %s AND module = %s", (user_id, module))
+            result = await cursor.fetchone()
 
             if result:
                 raise HTTPException(status_code=403, detail="You are banned.")
             
-def get_setting(user_id, setting, conn=None):
+async def get_setting(user_id, setting, conn=None):
     autoclose = False
     if not conn:
         autoclose = True
-        conn = get_connection("main")
+        conn = await get_connection("main")
 
     try:
         result = None
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT setting_value FROM user_settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
-            result = cursor.fetchone()
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT setting_value FROM user_settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
+            result = await cursor.fetchone()
 
         if result:
             return result[0]
@@ -121,67 +119,67 @@ def get_setting(user_id, setting, conn=None):
             return None
     finally:
         if autoclose:
-            conn.close()
+            await conn.ensure_closed()
     
             
-def set_setting(user_id, setting, value, conn=None, commit=True):
+async def set_setting(user_id, setting, value, conn=None, commit=True):
     autoclose = False
     if not conn:
         autoclose = True
-        conn = get_connection("main")
+        conn = await get_connection("main")
 
     try:
-        with conn.cursor() as cursor:
+        async with conn.cursor() as cursor:
             if value is None or value == "":
-                cursor.execute(
+                await cursor.execute(
                     "DELETE FROM user_settings WHERE user_id = %s AND setting_key = %s",
                     (user_id, setting),
                 )
             else:
-                cursor.execute(
+                await cursor.execute(
                     "SELECT COUNT(*) FROM user_settings WHERE user_id = %s AND setting_key = %s",
                     (user_id, setting),
                 )
-                exists = cursor.fetchone()[0] > 0
+                exists = await cursor.fetchone()[0] > 0
 
                 if exists:
-                    cursor.execute(
+                    await cursor.execute(
                         "UPDATE user_settings SET setting_value = %s, last_updated = NOW() WHERE user_id = %s AND setting_key = %s",
                         (value, user_id, setting),
                     )
                 else:
-                    cursor.execute(
+                    await cursor.execute(
                         "INSERT INTO user_settings (user_id, setting_key, setting_value, last_updated) VALUES (%s, %s, %s, NOW())",
                         (user_id, setting, value),
                     )
 
         if commit:
-            conn.commit()
+            await conn.commit()
     finally:
         if autoclose:
-            conn.close()
+            await conn.ensure_closed()
 
 
-def get_json_settings(type, id):
-    with get_connection("mnetwork") as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT extra_info FROM %s WHERE id = %s", (type, id))
-            result = cursor.fetchone()
+async def get_json_settings(type, id):
+    async with get_connection("mnetwork") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT extra_info FROM %s WHERE id = %s", (type, id))
+            result = await cursor.fetchone()
 
             return json.loads(result[0]) if result else None
 
-def set_json_settings(type, id, new_value):
-    with get_connection("mnetwork") as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("UPDATE extra_info SET %s = %s WHERE id = %s", (type, json.dumps(new_value), id))
-            conn.commit()
+async def set_json_settings(type, id, new_value):
+    async with get_connection("mnetwork") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("UPDATE extra_info SET %s = %s WHERE id = %s", (type, json.dumps(new_value), id))
+            await conn.commit()
 
-def add_badge(user_id, new_badge):
-    existing_badges = get_setting(user_id, "Badges")
+async def add_badge(user_id, new_badge):
+    existing_badges = await get_setting(user_id, "Badges")
     try:
         subject_badges = json.loads(existing_badges) if existing_badges else []
     except json.JSONDecodeError:
         subject_badges = []
     if new_badge not in subject_badges:
         subject_badges.append(new_badge)
-    set_setting(user_id, "Badges", json.dumps(subject_badges))
+    await set_setting(user_id, "Badges", json.dumps(subject_badges))

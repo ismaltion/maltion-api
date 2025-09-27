@@ -9,12 +9,12 @@ import json
 router = APIRouter()
 
 @router.get("/admin/reports")
-def router_reports(user_id: int = Depends(get_current_user_id)):
+async def router_reports(user_id: int = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
     
-    with get_dict_connection("main") as conn:
-        user_info = get_user_information(user_id)
+    async with get_dict_connection("main") as conn:
+        user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
         trust = int(user_info.get("trust", 0))
@@ -22,19 +22,19 @@ def router_reports(user_id: int = Depends(get_current_user_id)):
         if trust < 10:
             raise HTTPException(status_code=403, detail="You are not an admin.")
 
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM reports ORDER BY timestamp DESC LIMIT 50")
-            result = cursor.fetchall()
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM reports ORDER BY timestamp DESC LIMIT 50")
+            result = await cursor.fetchall()
 
             return { "reports": result }
         
 @router.get("/admin/get-report")
-def router_get_report(id: int, user_id: int = Depends(get_current_user_id)):
+async def router_get_report(id: int, user_id: int = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
     
-    with get_dict_connection("main") as conn:
-        user_info = get_user_information(user_id)
+    async with get_dict_connection("main") as conn:
+        user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
         trust = int(user_info.get("trust", 0))
@@ -42,9 +42,9 @@ def router_get_report(id: int, user_id: int = Depends(get_current_user_id)):
         if trust < 10:
             raise HTTPException(status_code=403, detail="You are not an admin.")
         
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM reports WHERE id = %s LIMIT 1", (id,))
-            result = cursor.fetchone()
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM reports WHERE id = %s LIMIT 1", (id,))
+            result = await cursor.fetchone()
 
             if not result:
                 raise HTTPException(status_code=404, detail="Report not found.")
@@ -55,14 +55,14 @@ def router_get_report(id: int, user_id: int = Depends(get_current_user_id)):
             parent_type = result["parent_type"]
             author_id = result["author_id"]
 
-            cursor.execute("SELECT username FROM users WHERE id = %s LIMIT 1", (author_id,))
-            result_2 = cursor.fetchone()
+            await cursor.execute("SELECT username FROM users WHERE id = %s LIMIT 1", (author_id,))
+            result_2 = await cursor.fetchone()
             if result_2:
                 result["author_name"] = result_2["username"]
             
             if parent_module == "mnetwork":
-                with get_dict_connection("mnetwork") as mnetwork_conn:
-                    with mnetwork_conn.cursor() as mnetwork_cursor:
+                async with get_dict_connection("mnetwork") as mnetwork_conn:
+                    async with mnetwork_conn.cursor() as mnetwork_cursor:
                         parent_type_query = "posts"
                         table_map = {
                             "post": "posts",
@@ -71,13 +71,13 @@ def router_get_report(id: int, user_id: int = Depends(get_current_user_id)):
                         }
                 
                         parent_type_query = table_map[parent_type]
-                        mnetwork_cursor.execute(f"SELECT * FROM {parent_type_query} WHERE id = {parent_id} LIMIT 1")
-                        content_result = mnetwork_cursor.fetchone()
+                        await mnetwork_cursor.execute(f"SELECT * FROM {parent_type_query} WHERE id = {parent_id} LIMIT 1")
+                        content_result = await mnetwork_cursor.fetchone()
             
             return { "report_detail": result, "report_content": content_result }
         
 @router.post("/admin/ban")
-def router_reports(payload: banning, user_id: int = Depends(get_current_user_id)):
+async def router_reports(payload: banning, user_id: int = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
     
@@ -85,8 +85,8 @@ def router_reports(payload: banning, user_id: int = Depends(get_current_user_id)
     module = payload.module
     reason = payload.reason
     
-    with get_dict_connection("main") as conn:
-        user_info = get_user_information(user_id)
+    async with get_dict_connection("main") as conn:
+        user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
         
@@ -96,26 +96,26 @@ def router_reports(payload: banning, user_id: int = Depends(get_current_user_id)
         if trust < 10:
             raise HTTPException(status_code=403, detail="You are not an admin.")
         
-        banned_info = get_user_information_by_username(banned_username, conn)
+        banned_info = await get_user_information_by_username(banned_username, conn)
         if not banned_info:
             raise HTTPException(status_code=404, detail="User not found.")
         
         banned_id = int(banned_info["id"])
-        with conn.cursor() as cursor:
-            cursor.execute("INSERT INTO bans (user_id, author_id, module, reason) VALUES (%s, %s, %s, %s)", (banned_id, user_id, module, reason))
-            conn.commit()
+        async with conn.cursor() as cursor:
+            await cursor.execute("INSERT INTO bans (user_id, author_id, module, reason) VALUES (%s, %s, %s, %s)", (banned_id, user_id, module, reason))
+            await conn.commit()
 
             return { "reports": "User banned successfully." }
         
 @router.post("/admin/unban")
-def router_reports(payload: unbanning, user_id: int = Depends(get_current_user_id)):
+async def router_reports(payload: unbanning, user_id: int = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
     
     banned_username = payload.username
 
-    with get_dict_connection("main") as conn:
-        user_info = get_user_information(user_id)
+    async with get_dict_connection("main") as conn:
+        user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
         trust = int(user_info.get("trust", 0))
@@ -123,27 +123,27 @@ def router_reports(payload: unbanning, user_id: int = Depends(get_current_user_i
         if trust < 10:
             raise HTTPException(status_code=403, detail="You are not an admin.")
         
-        banned_info = get_user_information_by_username(banned_username, conn)
+        banned_info = await get_user_information_by_username(banned_username, conn)
         if not banned_info:
             raise HTTPException(status_code=404, detail="User not found.")
         
         banned_id = int(banned_info["id"])
-        with conn.cursor() as cursor:
-            cursor.execute("DELETE FROM bans WHERE user_id = %s", (banned_id,))
-            conn.commit()
+        async with conn.cursor() as cursor:
+            await cursor.execute("DELETE FROM bans WHERE user_id = %s", (banned_id,))
+            await conn.commit()
             
             return { "reports": "User unbanned successfully." }
         
 @router.post("/admin/send-notification")
-def router_reports(payload: sendNotification, user_id: int = Depends(get_current_user_id)):
+async def router_reports(payload: sendNotification, user_id: int = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
     
     notified_username = payload.username
     notified_content = payload.content
     
-    with get_dict_connection("main") as conn:
-        user_info = get_user_information(user_id)
+    async with get_dict_connection("main") as conn:
+        user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
         
@@ -153,27 +153,27 @@ def router_reports(payload: sendNotification, user_id: int = Depends(get_current
         if trust < 10:
             raise HTTPException(status_code=403, detail="You are not an admin.")
         
-        notified_info = get_user_information_by_username(notified_username, conn)
+        notified_info = await get_user_information_by_username(notified_username, conn)
         if not notified_info:
             raise HTTPException(status_code=404, detail="User not found.")
         
         notified_id = int(notified_info["id"])
         
-        notify = notification("mnetwork", notified_content, 0, "admin_warning")
-        send_notification(notified_id, notify)
+        notify = await notification("mnetwork", notified_content, 0, "admin_warning")
+        await send_notification(notified_id, notify)
 
         return { "reports": "Notification sent successfully." }
     
 @router.post("/admin/add-badge")
-def add_badge(payload: addBadge, user_id = Depends(get_current_user_id)):
+async def add_badge(payload: addBadge, user_id = Depends(get_current_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
     
     subject_username = payload.username
     new_badge = payload.badge
 
-    with get_dict_connection("main") as conn:
-        user_info = get_user_information(user_id)
+    async with get_dict_connection("main") as conn:
+        user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
         
@@ -183,13 +183,13 @@ def add_badge(payload: addBadge, user_id = Depends(get_current_user_id)):
         if trust < 20:
             raise HTTPException(status_code=403, detail="You need higher permissions to do this")
         
-        subject_info = get_user_information_by_username(subject_username, conn)
+        subject_info = await get_user_information_by_username(subject_username, conn)
         if not subject_info:
             raise HTTPException(status_code=404, detail="User not found.")
         
         subject_id = int(subject_info["id"])
 
-        existing_badges = get_setting(subject_id, "Badges")
+        existing_badges = await get_setting(subject_id, "Badges")
         try:
             subject_badges = json.loads(existing_badges) if existing_badges else []
         except json.JSONDecodeError:
@@ -198,6 +198,6 @@ def add_badge(payload: addBadge, user_id = Depends(get_current_user_id)):
         if new_badge not in subject_badges:
             subject_badges.append(new_badge)
 
-        set_setting(subject_id, "Badges", json.dumps(subject_badges))
+        await set_setting(subject_id, "Badges", json.dumps(subject_badges))
 
         return {"detail": f"Badge '{new_badge}' added to {subject_username}"}

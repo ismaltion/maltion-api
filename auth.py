@@ -20,13 +20,13 @@ def get_current_session(session_token: str = Cookie(None)):
         raise HTTPException(status_code=401, detail="No session token")
     return session_token
 
-def get_current_user_id(session_token: str = Cookie(None)):
+async def get_current_user_id(session_token: str = Cookie(None)):
     try:
         if not session_token:
             return None
     
-        with get_connection() as conn:
-            user_id = validate_session(conn, session_token)
+        async with get_connection() as conn:
+            user_id = await validate_session(conn, session_token)
 
         if not user_id:
             return None
@@ -52,61 +52,61 @@ def check_password(password: str, hashed: str) -> bool:
 # Session management
 # -------------------
 
-def create_session(conn, user_id, expiry_days=7):
+async def create_session(conn, user_id, expiry_days=7):
     session_token = secrets.token_hex(32)
     expires_at = datetime.utcnow() + timedelta(days=expiry_days)
 
-    with conn.cursor() as cursor:
-        cursor.execute(
+    async with conn.cursor() as cursor:
+        await cursor.execute(
             """
             INSERT INTO sessions (userId, sessionToken, createdAt, expiresAt)
             VALUES (%s, %s, NOW(), %s)
             """,
             (user_id, session_token, expires_at)
         )
-        conn.commit()
+        await conn.commit()
 
     return session_token, expires_at
 
-def validate_session(conn, session_token):
-    with conn.cursor() as cursor:
-        cursor.execute(
+async def validate_session(conn, session_token):
+    async with conn.cursor() as cursor:
+        await cursor.execute(
             '''
             SELECT userId, expiresAt FROM sessions
             WHERE sessionToken = %s
             ''',
             (session_token,)
         )
-        session = cursor.fetchone()
+        session = await cursor.fetchone()
 
         if not session:
             return None
 
         user_id, expires_at = session
         if expires_at < datetime.utcnow():
-            cursor.execute('''DELETE FROM sessions WHERE sessionToken = %s''', (session_token,))
-            conn.commit()
+            await cursor.execute('''DELETE FROM sessions WHERE sessionToken = %s''', (session_token,))
+            await conn.commit()
             return None
 
     return user_id
 
-def remove_session(conn, session_token):
-    with conn.cursor() as cursor:
-        cursor.execute(
+async def remove_session(conn, session_token):
+    async with conn.cursor() as cursor:
+        await cursor.execute(
             "DELETE FROM sessions WHERE sessionToken = %s",
             (session_token,)
         )
-        conn.commit()
+        await conn.commit()
 
-def remove_session_by_user_id(conn, user_id):
-    with conn.cursor() as cursor:
-        cursor.execute(
+async def remove_session_by_user_id(conn, user_id):
+    async with conn.cursor() as cursor:
+        await cursor.execute(
             "DELETE FROM sessions WHERE userId = %s",
             (user_id,)
         )
-        conn.commit()
+        await conn.commit()
 
-def check_mclient_password(password, hash):
+async def check_mclient_password(password, hash):
     saltedpassword = f"{MCLIENT_SALT}{password}"
     new_hash = hashlib.sha256(saltedpassword.encode()).hexdigest()
 

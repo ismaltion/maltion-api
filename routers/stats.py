@@ -18,19 +18,19 @@ async def usedDexDash(request: Request):
     except Exception as e:
         print("Exception occurred while getting request.headers: " + e)
 
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute('''SELECT * FROM visitors WHERE name = %s AND module = %s''', (client_ip, "DEX-DASH"))
-            result = cursor.fetchone()
+    async with get_connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute('''SELECT * FROM visitors WHERE name = %s AND module = %s''', (client_ip, "DEX-DASH"))
+            result = await cursor.fetchone()
 
             if result:
                 times = result[3] + 1
-                cursor.execute('''UPDATE visitors SET times = %s WHERE name = %s AND module = %s''', (times, client_ip, "DEX-DASH"))
-                cursor.execute('''UPDATE visitors SET last_time = NOW() WHERE name = %s AND module = %s''', (client_ip, "DEX-DASH"))
-                conn.commit()
+                await cursor.execute('''UPDATE visitors SET times = %s WHERE name = %s AND module = %s''', (times, client_ip, "DEX-DASH"))
+                await cursor.execute('''UPDATE visitors SET last_time = NOW() WHERE name = %s AND module = %s''', (client_ip, "DEX-DASH"))
+                await conn.commit()
             else:
-                cursor.execute('''INSERT INTO visitors (name, module, times, first_time, last_time) VALUES (%s, %s, %s, NOW(), NOW())''', (client_ip, "DEX-DASH", 1))
-                conn.commit()
+                await cursor.execute('''INSERT INTO visitors (name, module, times, first_time, last_time) VALUES (%s, %s, %s, NOW(), NOW())''', (client_ip, "DEX-DASH", 1))
+                await conn.commit()
 
     return {"message": "Success"}
 
@@ -49,18 +49,18 @@ async def usedRdMedics(request: Request):
     except Exception as e:
         print("Exception occurred while getting request.headers: " + e)
 
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute('''SELECT * FROM visitors WHERE name = %s AND module = %s''', (client_ip, "RD-MEDICS"))
-            result = cursor.fetchone()
+    async with get_connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute('''SELECT * FROM visitors WHERE name = %s AND module = %s''', (client_ip, "RD-MEDICS"))
+            result = await cursor.fetchone()
 
             if result:
                 times = result[3] + 1
-                cursor.execute('''UPDATE visitors SET times = %s WHERE name = %s AND module = %s''', (times, client_ip, "RD-MEDICS"))
-                cursor.execute('''UPDATE visitors SET last_time = NOW() WHERE name = %s AND module = %s''', (client_ip, "RD-MEDICS"))
-                conn.commit()
+                await cursor.execute('''UPDATE visitors SET times = %s WHERE name = %s AND module = %s''', (times, client_ip, "RD-MEDICS"))
+                await cursor.execute('''UPDATE visitors SET last_time = NOW() WHERE name = %s AND module = %s''', (client_ip, "RD-MEDICS"))
+                await conn.commit()
             else:
-                cursor.execute('''INSERT INTO visitors (name, module, times, first_time, last_time) VALUES (%s, %s, %s, NOW(), NOW())''', (client_ip, "RD-MEDICS", 1))
-                conn.commit()
+                await cursor.execute('''INSERT INTO visitors (name, module, times, first_time, last_time) VALUES (%s, %s, %s, NOW(), NOW())''', (client_ip, "RD-MEDICS", 1))
+                await conn.commit()
 
     return {"message": "Success"}
