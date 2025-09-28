@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, editCommunity, editThread, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings, deletePost, field_1
 from auth import get_current_user_id, check_password, hash_ip
 from db import get_connection, get_dict_connection
-from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban, set_setting, get_setting, add_badge
+from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban, set_setting, get_setting, add_badge, rate_limiter
 from typing import Optional
 from config import IMAGE_UPLOAD_FOLDER
 from PIL import Image
@@ -99,6 +99,9 @@ async def router_create_community(payload: mnetwork_create_community, user_id = 
         raise HTTPException(status_code=401, detail=noAccMsg)
     
     await check_ban(user_id, "MNetwork")
+
+    if rate_limiter(user_id) is False:
+        raise HTTPException(status_code=429, detail="Slow down!")
     
     name = payload.name
     description = payload.description
@@ -130,6 +133,9 @@ async def router_create_thread(payload: mnetwork_create_thread, user_id = Depend
         raise HTTPException(status_code=401, detail=noAccMsg)
     
     await check_ban(user_id, "MNetwork")
+
+    if rate_limiter(user_id) is False:
+        raise HTTPException(status_code=429, detail="Slow down!")
     
     title = payload.title
     content = payload.content
@@ -183,6 +189,9 @@ async def router_create_post(
         raise HTTPException(status_code=401, detail=noAccMsg)
     
     await check_ban(user_id, "MNetwork")
+
+    if rate_limiter(user_id) is False:
+        raise HTTPException(status_code=429, detail="Slow down!")
 
     async with get_connection("mnetwork") as conn:
         user_info = await get_user_information(user_id)
