@@ -32,13 +32,12 @@ class ChangePasswordRequest(BaseModel):
     oldValue: str
     newValue: str
 
-class send_friend_request(BaseModel):
+class add_friend(BaseModel):
     friend_name: str
     message: str
 
-class accept_friend_request(BaseModel):
+class decline_friend_request(BaseModel):
     friend_name: str
-    answer: str
 
 class friend_operation(BaseModel):
     friend_name: str

@@ -1,153 +1,158 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from auth import get_current_user_id
-from db import get_connection
-from utils import get_user_information, get_user_information_by_username
-from models import send_friend_request, accept_friend_request, friend_operation
+from db import get_connection, get_dict_connection
+from utils import get_user_information, get_user_information_by_username, send_notification, notification
+from models import add_friend, decline_friend_request, friend_operation
 
 router = APIRouter()
 
+# friend list and friend requests work in the same table.
+# a friend request is a single row with status "pending"
+# a friendship is two rows with status "accepted"
+
 @router.get("/friend-list")
 async def router_friend_list(user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
-        user_info = await get_user_information(user_id, conn)
-        
-        if not user_info:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        friends = user_info.get("friends")
+    if not user_id:
+        raise HTTPException(status_code=404, detail="You need to login to do this operation.")
+    
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM friends WHERE author_id = %s AND status = %s", (user_id, "accepted"))
+            friends = await cursor.fetchall()
 
         return friends
     
+# this is also the same route used to accept friend requests
 @router.post("/add-friend")
-async def router_send_friend_request(payload: send_friend_request, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
-        user_info = await get_user_information(user_id, conn)
-        recipient = payload.friend_name
-        message = payload.message
+async def router_add_friend(payload: add_friend, user_id: int = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=404, detail="You need to login to do this operation.")
+    
+    friend_name = payload.friend_name.lower()
+    message = payload.message
 
-        if len(message) > 128:
-            raise HTTPException(status_code=400, detail="Your message is too long. Please shorten it.")
+    if len(friend_name) < 3 or len(friend_name) > 32:
+        raise HTTPException(status_code=400, detail="The username must be between 3 and 32 characters long.")
+    if len(message) > 255:
+        raise HTTPException(status_code=400, detail="The message must be less than 255 characters long.")
+
+    async with get_dict_connection("main") as conn:
+        user_info = await get_user_information(user_id, conn)
+        friend_info = await get_user_information_by_username(friend_name, conn)
+
+        user_username = user_info["username"]
+        friend_id = friend_info["id"]
+        request_type = "pending"
 
         if not user_info:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="Your user account was not found.")
+        if not friend_info:
+            raise HTTPException(status_code=404, detail="The user you tried to send the friend request to was not found.")
+        if friend_id == user_id:
+            raise HTTPException(status_code=400, detail="Duplicate personalities are not supported.")
         
-        friend_list = user_info["friends"]
-
-        if recipient in friend_list:
-            raise HTTPException(status_code=400, detail="This user is already in your friend list.")
-
         async with conn.cursor() as cursor:
-            await cursor.execute('''SELECT id FROM users WHERE username = %s''', (recipient,)) # check if the recipient exists in the first place
-            result = await cursor.fetchone()
-
-            if result:
-                await cursor.execute('''SELECT id FROM friend_requests WHERE author = %s AND recipient = %s''', (user_info["username"], recipient))
-                result = await cursor.fetchone()
-                if result:
-                    raise HTTPException(status_code=400, detail="You have already sent a friend request to this user.")
-                await cursor.execute('''SELECT * FROM friend_requests WHERE recipient = %s AND author = %s LIMIT 1''', (user_info.get("username"), recipient))
-                if result:
-                    raise HTTPException(status_code=400, detail="The recipient has sent you a friend request too. Accept it.")
-
-                await cursor.execute('''INSERT INTO friend_requests (author, recipient, timestamp, message) VALUES (%s, %s, NOW(), %s)''', (user_info["username"], recipient, message))
-                await conn.commit()
-
-                return JSONResponse(status_code=201, content={"message": "Friend request sent."})
-            else:
-                raise HTTPException(status_code=404, detail="Recipient not found - Check for typos.")
+            await cursor.execute("SELECT * FROM friends WHERE author_id = %s AND recipient_id = %s AND status = %s", (user_id, friend_id, "pending"))
+            existing_request = await cursor.fetchone()
+            if existing_request:
+                raise HTTPException(status_code=400, detail="You have already sent a friend request to this user.")
             
+            await cursor.execute("SELECT * FROM friends WHERE author_id = %s AND recipient_id = %s AND status = %s", (friend_id, user_id, "pending"))
+            reverse_request = await cursor.fetchone()
+            if reverse_request:
+                request_type = "accepted"
+                await cursor.execute("UPDATE friends SET status = %s WHERE id = %s", (request_type, reverse_request["id"]))
+
+            await cursor.execute("INSERT INTO friends (author, author_id, recipient, recipient_id, timestamp, message, status) VALUES (%s, %s, %s, %s, NOW(), %s, %s)", (user_username, user_id, friend_name, friend_id, message, request_type))
+            await conn.commit()
+
+            notify = notification("friend_request", f"{user_username} has sent you a friend request.", f"/profile/{user_username}", friend_id)
+            if request_type == "accepted":
+                notify = notification("friend_request_accepted", f"{user_username} has accepted your friend request.", f"/profile/{user_username}", friend_id)
+            await send_notification(friend_id, notify, conn)
+        return {"message": "Friend request sent."}
+        
+            
+@router.post("/decline-friend-request")
+async def router_decline_friend_request(payload: decline_friend_request, user_id: int = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=404, detail="You need to login to do this operation.")
+    
+    friend_name = payload.friend_name.lower()
+
+    if len(friend_name) < 3 or len(friend_name) > 32:
+        raise HTTPException(status_code=400, detail="The username must be between 3 and 32 characters long.")
+
+    async with get_connection("main") as conn:
+        user_info = await get_user_information(user_id, conn)
+        friend_info = await get_user_information_by_username(friend_name, conn)
+
+        user_username = user_info["username"]
+        friend_id = friend_info["id"]
+
+        if not user_info:
+            raise HTTPException(status_code=404, detail="Your user account was not found.")
+        
+        with conn.cursor() as cursor:
+            if not friend_info:
+                # in case account was deleted but request somehow still exists
+                await cursor.execute("DELETE FROM friends WHERE recipient_id = %s AND author = %s AND status = %s", (user_id, friend_name, "pending"))
+                await conn.commit()
+                return JSONResponse(content={"message": "Friend request declined."}, status_code=200)
+
+            await cursor.execute("SELECT * FROM friends WHERE author_id = %s AND recipient_id = %s AND status = %s", (friend_id, user_id, "pending"))
+            existing_request = await cursor.fetchone()
+            if not existing_request:
+                raise HTTPException(status_code=400, detail="You have no pending friend request from this user.")
+            
+            await cursor.execute("DELETE FROM friends WHERE id = %s", (existing_request[0],))
+            await conn.commit()
+        return {"message": "Friend request declined."}
+    
 @router.post("/remove-friend")
 async def router_remove_friend(payload: friend_operation, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    if not user_id:
+        raise HTTPException(status_code=404, detail="You need to login to do this operation.")
+    
+    friend_name = payload.friend_name.lower()
+
+    if len(friend_name) < 3 or len(friend_name) > 32:
+        raise HTTPException(status_code=400, detail="The username must be between 3 and 32 characters long.")
+
+    async with get_connection("main") as conn:
         user_info = await get_user_information(user_id, conn)
-        if not user_info:
-            raise HTTPException(status_code=404, detail="User not found.")
-        
-        username = str(user_info["username"])
-        friend_list = user_info["friends"]
-        friend = payload.friend_name
+        friend_info = await get_user_information_by_username(friend_name, conn)
 
-        friend_friend_list = []
-        error = False # pov: friend account was deleted and no information can be get from it...
-        try:
-            friend_info = await get_user_information_by_username(friend, conn)
-            friend_friend_list = friend_info["friends"]
-        except Exception:
-            error = True
-
-        if friend.lower() in friend_list:
-            friend_list.remove(friend.lower())
-
-        if username.lower() in friend_friend_list and error == False:
-            friend_friend_list.remove(username.lower())
-
-        processed_friend_list = ",".join(friend_list)
-        processed_friend_friend_list = ""
-        if error == False:
-            processed_friend_friend_list = ",".join(friend_friend_list)
-        if friend.lower() in friend_list or username.lower() in friend_friend_list:
-            async with conn.cursor() as cursor:
-                await cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_list, username))
-                if error == False:
-                    await cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_friend_list, friend))
-            await conn.commit()
-    return {"message": "Successfully deleted friend"}
-
-@router.get("/get-friend-requests")
-async def router_get_friend_requests(user_id = Depends(get_current_user_id)):
-    async with get_connection() as conn:
-        user_info = await get_user_information(user_id, conn)
-        if not user_info:
-            raise HTTPException(status_code=404, detail="User not found.")
-        
-        async with conn.cursor() as cursor:
-            await cursor.execute('''SELECT * FROM friend_requests WHERE recipient = %s LIMIT 100''', (user_info.get("username"),))
-            rows = await cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description]
-
-            results = [dict(zip(columns, row)) for row in rows]
-            return results
-
-@router.post("/reply-friend-request")
-async def router_accept_friend_request(payload: accept_friend_request, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
-        user_info = await get_user_information(user_id, conn)
-        username = user_info["username"]
-        friend = payload.friend_name
-        answer = payload.answer
-
-        friend_info = await get_user_information_by_username(friend, conn)
+        user_username = user_info["username"]
+        friend_id = friend_info["id"]
 
         if not user_info:
-            raise HTTPException(status_code=404, detail="User not found.")
+            raise HTTPException(status_code=404, detail="Your user account was not found.")
         
-        if not friend_info:
-            raise HTTPException(status_code=404, detail="Friend not found.")
-
-        async with conn.cursor() as cursor:
-            await cursor.execute('''SELECT id FROM friend_requests WHERE author = %s AND recipient = %s''', (friend, username))
-            result = await cursor.fetchone()
-            if not result:
-                raise HTTPException(status_code=404, detail="Friend request not found.")
+        with conn.cursor() as cursor:
+            if not friend_info:
+                # in case account was deleted but friendship somehow still exists
+                await cursor.execute("DELETE FROM friends WHERE author_name = %s AND recipient_id = %s AND status = %s", (friend_name, user_id, "accepted"))
+                await conn.commit()
             
-            if answer == "accept":
-                friend_list = user_info["friends"]
-                if friend not in friend_list:
-                    friend_list.append(friend.lower())
-                processed_friend_list = ",".join(friend_list)
+            await cursor.execute("SELECT * FROM friends WHERE author_id = %s AND recipient_id = %s AND status = %s", (user_id, friend_id, "accepted"))
+            existing_friendship = await cursor.fetchone()
+            if not existing_friendship:
+                raise HTTPException(status_code=400, detail="You are not friends with this user.")
+            
+            await cursor.execute("DELETE FROM friends WHERE (author_id = %s AND recipient_id = %s) OR (author_id = %s AND recipient_id = %s)", (user_id, friend_id, friend_id, user_id))
+            await conn.commit()
+        return {"message": "Friend removed."}
+    
+@router.get("/friend-requests")
+async def router_friend_requests(user_id: int = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=404, detail="You need to login to do this operation.")
+    
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM friends WHERE recipient_id = %s AND status = %s", (user_id, "pending"))
+            requests = await cursor.fetchall()
 
-                friend_friend_list = friend_info["friends"] # worst name ever for variable?
-                if username not in friend_friend_list:
-                    friend_friend_list.append(username.lower())
-                processed_friend_friend_list = ",".join(friend_friend_list)
-        
-                await cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_list, username))
-                await cursor.execute('''UPDATE users SET friends = %s WHERE username = %s''', (processed_friend_friend_list, friend))
-                await cursor.execute('''DELETE FROM friend_requests WHERE author = %s AND recipient = %s''', (friend, username))
-            else:
-                await cursor.execute('''DELETE FROM friend_requests WHERE author = %s AND recipient = %s''', (friend, username))
-
-        conn.commit()
-
-        return JSONResponse(status_code=200, content={"message": "Friend request accepted."})
+        return requests
