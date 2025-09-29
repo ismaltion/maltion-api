@@ -189,7 +189,7 @@ async def route_login_user(username: str = Body(...), password: str = Body(...))
             if not check_password(password, hashed):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
 
-            session_token, expires_at = create_session(conn, user_id)
+            session_token, expires_at = await create_session(conn, user_id)
 
     response = Response(content='{"message": "Login successful"}', media_type="application/json")
     response.set_cookie(
@@ -215,9 +215,8 @@ async def route_logoff_user(session_token: str = Cookie(None)):
 
 @router.get("/get-user-info")
 async def route_getUserInfo(user_id: int = Depends(get_current_user_id)):
-    conn = await get_connection()
-    user_info = await get_user_information(user_id, conn)
-    await conn.close()
+    async with get_dict_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
 
     if not user_info:
         raise HTTPException(status_code=404, detail="User not found")
@@ -243,7 +242,7 @@ async def route_getUsername(user_id: int = Depends(get_current_user_id)):
 
 @router.get("/check-login")
 async def route_check_login(user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         user_info = await get_user_information(user_id, conn)
 
     if not user_info:
@@ -253,7 +252,7 @@ async def route_check_login(user_id: int = Depends(get_current_user_id)):
 
 @router.get("/get-settings")
 async def route_getSettings(user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
@@ -263,13 +262,13 @@ async def route_getSettings(user_id: int = Depends(get_current_user_id)):
             result = await cursor.fetchone()
 
             if result:
-                return json.loads(result[0])
+                return json.loads(result["settings"])
             else:
                 raise HTTPException(status_code=404, detail="Settings not found")
 
 @router.post("/update-settings")
 async def route_updateSettings(user_id: int = Depends(get_current_user_id), settings: dict = Body(...)): # settings are supposed to be a json object
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
@@ -283,7 +282,7 @@ async def route_updateSettings(user_id: int = Depends(get_current_user_id), sett
 
 @router.post("/change-username")
 async def route_changeUsername(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
@@ -309,7 +308,7 @@ async def route_changeUsername(payload: ChangeFieldRequest, user_id: int = Depen
 
 @router.post("/change-nickname")
 async def route_changeNickname(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
@@ -327,7 +326,7 @@ async def route_changeNickname(payload: ChangeFieldRequest, user_id: int = Depen
 
 @router.post("/change-country")
 async def route_changeCountry(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
@@ -345,7 +344,7 @@ async def route_changeCountry(payload: ChangeFieldRequest, user_id: int = Depend
 
 @router.post("/change-birthday")
 async def route_changeBirthday(payload: ChangeDateRequest, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
@@ -361,7 +360,7 @@ async def route_changeBirthday(payload: ChangeDateRequest, user_id: int = Depend
 
 @router.post("/change-email")
 async def route_changeEmail(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
@@ -379,7 +378,7 @@ async def route_changeEmail(payload: ChangeFieldRequest, user_id: int = Depends(
 
 @router.post("/change-biography")
 async def route_changeBiography(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         user_info = await get_user_information(user_id, conn)
         newValue = payload.value
         if not user_info:
@@ -397,7 +396,7 @@ async def route_changeBiography(payload: ChangeFieldRequest, user_id: int = Depe
 
 @router.post("/change-password")
 async def route_changePassword(payload: ChangePasswordRequest, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         async with conn.cursor() as cursor:
             user_info = await get_user_information(user_id, conn)
             oldValue = payload.oldValue
@@ -409,7 +408,7 @@ async def route_changePassword(payload: ChangePasswordRequest, user_id: int = De
 
             await cursor.execute('''SELECT password FROM users WHERE id = %s''', (user_id,))
             result = await cursor.fetchone()
-            hashed = result[0]
+            hashed = result["password"]
             if not check_password(oldPassword, hashed):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -423,7 +422,7 @@ async def route_changePassword(payload: ChangePasswordRequest, user_id: int = De
 
 @router.post("/delete-account")
 async def route_deleteAccount(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         async with conn.cursor() as cursor:
             user_info = await get_user_information(user_id, conn)
             currentPassword = payload.value
@@ -434,7 +433,7 @@ async def route_deleteAccount(payload: ChangeFieldRequest, user_id: int = Depend
 
             await cursor.execute('''SELECT password FROM users WHERE id = %s''', (user_id,))
             result = await cursor.fetchone()
-            hashed = result[0]
+            hashed = result["password"]
             if not check_password(password, hashed):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
             
@@ -450,7 +449,7 @@ async def route_deleteAccount(payload: ChangeFieldRequest, user_id: int = Depend
 @router.post("/upload-pfp")
 async def route_upload_image(user_id: int = Depends(get_current_user_id), file: UploadFile = File(...)):
     user_info = None
-    async with get_connection() as conn:
+    async with get_dict_connection() as conn:
         user_info = await get_user_information(user_id, conn)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
@@ -483,7 +482,7 @@ async def report_abuse(payload: reportAbuse, user_id = Depends(get_current_user_
     details = payload.detail
     if not user_id:
         raise HTTPException(status_code=401, detail="You must log in to do this action.")
-    async with get_connection("main") as conn:
+    async with get_dict_connection("main") as conn:
         async with conn.cursor() as cursor:
             await cursor.execute("INSERT INTO reports (parent_id, parent_module, parent_type, author_id, type, content) VALUES (%s, %s, %s, %s, %s, %s)", (content_id, module, content_type, user_id, reason, details))
             await conn.commit()

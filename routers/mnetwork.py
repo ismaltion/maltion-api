@@ -193,7 +193,7 @@ async def router_create_post(
     if rate_limiter(user_id) is False:
         raise HTTPException(status_code=429, detail="Slow down!")
 
-    async with get_connection("mnetwork") as conn:
+    async with get_dict_connection("mnetwork") as conn:
         user_info = await get_user_information(user_id)
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found.")
@@ -264,12 +264,12 @@ async def router_create_post(
                     await cursor.execute("SELECT user_id FROM community_follows WHERE community_id = %s", (community_id,))
                     followers = await cursor.fetchall()
                     for f in followers:
-                        notify = notification("MNetwork", f"@{username} mentioned everyone in {thread_title} of {community_name}", post_id, "post_mention")
+                        notify = notification("MNetwork", f"@{username} mentioned everyone in {thread_title} of {community_name}", thread_id, "post_mention")
                         await send_notification(f["user_id"], notify)
                 else:
                     recipient_data = await get_user_information_by_username(recipient)
                     if recipient_data:
-                        notify = notification("MNetwork", f"@{username} mentioned you in {thread_title} of {community_name}", post_id, "post_mention")
+                        notify = notification("MNetwork", f"@{username} mentioned you in {thread_title} of {community_name}", thread_id, "post_mention")
                         await send_notification(recipient_data["id"], notify)
 
             await conn.commit()
@@ -342,7 +342,7 @@ async def router_get_thread(thread: int, user_id = Depends(get_current_user_id))
 
             community_id = result["community_id"]
             await cursor.execute('SELECT * FROM communities WHERE id = %s LIMIT 1', (community_id,))
-            community_result = cursor.fetchone()
+            community_result = await cursor.fetchone()
 
             if user_id:
                 await cursor.execute(
@@ -365,7 +365,7 @@ async def router_get_community_threads(community: int):
             await cursor.execute('''SELECT * FROM threads WHERE community_id = %s AND pinned = 0 LIMIT 50''', (community,))
             result = await cursor.fetchall()
 
-            cursor.execute('''SELECT * FROM threads WHERE community_id = %s AND pinned = 1 LIMIT 50''', (community,))
+            await cursor.execute('''SELECT * FROM threads WHERE community_id = %s AND pinned = 1 LIMIT 50''', (community,))
             pinned = cursor.fetchall()
             return { "threads": result, "pinned": pinned }
 
@@ -1202,7 +1202,7 @@ async def router_update_thread_title(payload: editThread, user_id = Depends(get_
 
             extra_information = { "Username color": username_color }
             
-            await cursor.execute("UPDATE threads SET title = %s, extra_info = %s WHERE id = %s", (value, extra_information, thread_id))
+            await cursor.execute("UPDATE threads SET title = %s, extra_info = %s WHERE id = %s", (value, json.dumps(extra_information), thread_id))
             await conn.commit()
             return { "message": "Title updated successfully" }
         

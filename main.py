@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import ALLOWED_ORIGINS
 from routers import user, websocket, stats, friends, mnetwork, rdmedics, cheatgpt, admin
 from db import get_dict_connection
-import asyncio
 
 app = FastAPI()
 
@@ -38,17 +37,17 @@ THREAD_ID_MAP = {
 }
 
 @app.on_event("startup")
-def transfer_users():
-    with get_dict_connection("mclient") as conn_src, \
+async def transfer_users():
+    async with get_dict_connection("mclient") as conn_src, \
          get_dict_connection("main") as conn_dest:
         
-        with conn_src.cursor() as cursor_src, conn_dest.cursor() as cursor_dest:
+        async with conn_src.cursor() as cursor_src, conn_dest.cursor() as cursor_dest:
             
-            cursor_src.execute("SELECT username, email, description FROM users")
+            await cursor_src.execute("SELECT username, email, description FROM users")
             
             batch_size = 100
             while True:
-                rows = cursor_src.fetchmany(batch_size)
+                rows = await cursor_src.fetchmany(batch_size)
                 if not rows:
                     break
                 
@@ -58,18 +57,18 @@ def transfer_users():
                     if " " in username or len(username) > 32:
                         continue
                     
-                    cursor_dest.execute("SELECT 1 FROM users WHERE username=%s", (username,))
-                    if cursor_dest.fetchone():
+                    await cursor_dest.execute("SELECT 1 FROM users WHERE username=%s", (username,))
+                    if await cursor_dest.fetchone():
                         continue
                     
-                    cursor_dest.execute(
+                    await cursor_dest.execute(
                         """
                         INSERT INTO users (username, email, biography, mclient_reserved)
                         VALUES (%s, %s, %s, 1)
                         """,
                         (username, row['email'], row['description'])
                     )
-                conn_dest.commit()
+                await conn_dest.commit()
 
     
 

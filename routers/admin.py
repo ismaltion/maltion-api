@@ -159,7 +159,7 @@ async def router_reports(payload: sendNotification, user_id: int = Depends(get_c
         
         notified_id = int(notified_info["id"])
         
-        notify = await notification("mnetwork", notified_content, 0, "admin_warning")
+        notify = notification("mnetwork", notified_content, 0, "admin_warning")
         await send_notification(notified_id, notify)
 
         return { "reports": "Notification sent successfully." }
