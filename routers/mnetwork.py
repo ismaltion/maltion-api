@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, editCommunity, editThread, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings, deletePost, field_1
 from auth import get_current_user_id, check_password, hash_ip
 from db import get_connection, get_dict_connection
-from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban, set_setting, get_setting, add_badge, rate_limiter
+from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban, set_setting, get_setting, add_badge, rate_limiter, rate_limiter_guest_ip, get_guest_info
 from typing import Optional
 from config import IMAGE_UPLOAD_FOLDER
 from PIL import Image
@@ -128,81 +128,133 @@ async def router_create_community(payload: mnetwork_create_community, user_id = 
         return JSONResponse(status_code=201, content={"message": "Community created successfully."})
     
 @router.post("/mnetwork/create-thread")
-async def router_create_thread(payload: mnetwork_create_thread, user_id = Depends(get_current_user_id)):
-    if not user_id:
-        raise HTTPException(status_code=401, detail=noAccMsg)
-    
-    await check_ban(user_id, "MNetwork")
+async def router_create_thread(
+    request: Request,
+    title: str = Form(...),
+    content: str = Form(...),
+    community_id: int = Form(...),
+    image: Optional[UploadFile] = File(None),
+    user_id: int = Depends(get_current_user_id)
+):
+    client_ip = (request.headers.get("x-real-ip") or request.headers.get("X-Forwarded-For") or request.client.host)
 
-    if rate_limiter(user_id) is False:
-        raise HTTPException(status_code=429, detail="Slow down!")
-    
-    title = payload.title
-    content = payload.content
-    community_id = payload.community_id
+    if user_id:
+        await check_ban(user_id, "MNetwork")
 
-    async with get_connection("mnetwork") as conn:
+        if rate_limiter(user_id) is False:
+            raise HTTPException(status_code=429, detail="Slow down!")
+    else:
+        user_id = 0
+
+        if rate_limiter_guest_ip(client_ip) is False:
+            raise HTTPException(status_code=429, detail="Guests can only post once every 60 seconds. Please try again later (or log in).")
+    
+    async with get_dict_connection("mnetwork") as conn:
         user_info = await get_user_information(user_id)
+        username = None
+        premium = None
+        try:
+            username = user_info.get("username")
+            premium = user_info.get("premium", 0)
+        except Exception:
+            username = "Guest"
+            premium = 0
+
+        username_color = "#808080"
+        if premium == 1 and user_info:
+            username_color = await get_setting(user_id, "Username color")
 
         if not user_info:
-            raise HTTPException(status_code=404, detail="User not found.")
-        
-        username = user_info.get("username")
-        premium = user_info["premium"]
-        username_color = "#808080"
-        if premium == 1:
-            username_color = await get_setting(user_id, "Username color")
-        
-        username = user_info["username"]
-        extra_information = { "Username color": username_color }
-        extra_info = json.dumps(extra_information)
+            guest_info = await get_guest_info(client_ip)
+            if not guest_info:
+                raise HTTPException(status_code=400, detail="Choose a guest nickname first.")
+            username = f"{guest_info[1]} (Guest #{guest_info[0]})"
+            
+
+        extra_info = json.dumps({"Username color": username_color})
 
         async with conn.cursor() as cursor:
-            await cursor.execute('''SELECT locked, can_add, id FROM communities WHERE id = %s''', (community_id,))
+            # Validate community
+            await cursor.execute("SELECT locked, can_add, id FROM communities WHERE id = %s", (community_id,))
             result = await cursor.fetchone()
-            if result:
-                if result[0] == 1:
-                    raise HTTPException(status_code=401, detail="This community is locked.")
-                if result[1] == 0:
-                    raise HTTPException(status_code=401, detail="This community doesn't allow the creation of threads.")
-                
-                comm_id = result[2]
-                
-                await cursor.execute('''INSERT INTO threads (community_id, author_id, author_name, title, content, locked, extra_info) VALUES (%s, %s, %s, %s, %s, 0, %s)''', (community_id, user_id, username, title, content, extra_info))
-                await cursor.execute('''UPDATE communities SET activity_detail = %s WHERE id = %s''', (f"{username} created a new thread: {title}", comm_id))
-                await cursor.execute('''UPDATE communities SET last_activity = NOW() WHERE id = %s''', comm_id)
-                await conn.commit()
-            else:
+            if not result:
                 raise HTTPException(status_code=404, detail="The community you tried to post this thread in was not found.")
-            
-        return JSONResponse(status_code=201, content={"message": "Thread created successfully."})
+            if result["locked"] == 1:
+                raise HTTPException(status_code=401, detail="This community is locked.")
+            if result["can_add"] == 0:
+                raise HTTPException(status_code=401, detail="This community doesn't allow the creation of threads.")
+
+            comm_id = result["id"]
+
+            await cursor.execute(
+                """INSERT INTO threads 
+                   (community_id, author_id, author_name, title, content, locked, extra_info, has_image)
+                   VALUES (%s, %s, %s, %s, %s, 0, %s, %s)
+                   RETURNING id""",
+                (community_id, user_id, username, title, content, extra_info, 1 if image else 0)
+            )
+            thread_id = (await cursor.fetchone())["id"]
+
+            if image:
+                if user_id == 0:
+                    raise HTTPException(status_code=401, detail="You need to log in with a Maltion account to upload images.")
+
+                image_bytes = await image.read()
+                if len(image_bytes) > MAX_UPLOAD_SIZE:
+                    raise HTTPException(status_code=413, detail="Image exceeds 5 MB limit.")
+                file_location = f"{IMAGE_UPLOAD_FOLDER}/thread_{thread_id}.jpg"
+                await process_image(image_bytes, file_location)
+
+            await cursor.execute(
+                "UPDATE communities SET activity_detail = %s, last_activity = NOW() WHERE id = %s",
+                (f"{username} created a new thread: {title}", comm_id)
+            )
+            await conn.commit()
+    
+    return JSONResponse(status_code=201, content={"message": "Thread created successfully."})
 
 @router.post("/mnetwork/create-post")
 async def router_create_post(
+    request: Request,
     content: str = Form(...),
     thread_id: int = Form(...),
     parent_post_id: int = Form(...),
     image: Optional[UploadFile] = File(None),
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
 ):
-    if not user_id:
-        raise HTTPException(status_code=401, detail=noAccMsg)
-    
-    await check_ban(user_id, "MNetwork")
+    client_ip = (request.headers.get("x-real-ip") or request.headers.get("X-Forwarded-For") or request.client.host)
 
-    if rate_limiter(user_id) is False:
-        raise HTTPException(status_code=429, detail="Slow down!")
+    if user_id:    
+        await check_ban(user_id, "MNetwork")
+
+        if rate_limiter(user_id) is False:
+            raise HTTPException(status_code=429, detail="Slow down!")
+    else:
+        user_id = 0
+
+        if rate_limiter_guest_ip(client_ip) is False:
+            raise HTTPException(status_code=429, detail="Guests can only post once every 60 seconds. Please try again later (or log in).")
 
     async with get_dict_connection("mnetwork") as conn:
         user_info = await get_user_information(user_id)
-        if not user_info:
-            raise HTTPException(status_code=404, detail="User not found.")
-        
-        username = user_info["username"]
-        premium = user_info["premium"]
+        username = None
+        premium = None
+        try:
+            username = user_info.get("username")
+            premium = user_info.get("premium", 0)
+        except Exception:
+            username = "Guest"
+            premium = 0
+
         username_color = "#808080"
-        if premium == 1:
+        if premium == 1 and user_info:
             username_color = await get_setting(user_id, "Username color")
+
+        if not user_info:
+            guest_info = await get_guest_info(client_ip)
+            if not guest_info:
+                raise HTTPException(status_code=400, detail="Choose a guest nickname first.")
+            username = f"{guest_info[1]} (Guest #{guest_info[0]})"
 
         extra_info = json.dumps({"Username color": username_color})
 
@@ -247,6 +299,8 @@ async def router_create_post(
                                  (f"{username} posted in thread: {thread_title}", community_id))
 
             if image:
+                if user_id == 0:
+                    raise HTTPException(status_code=401, detail="You need to log in with a Maltion account to upload images.")
                 image_bytes = await image.read()
                 if len(image_bytes) > MAX_UPLOAD_SIZE:
                     raise HTTPException(status_code=413, detail="Image exceeds 5 MB limit.")
@@ -260,12 +314,14 @@ async def router_create_post(
                     continue
 
                 if recipient == "everyone" and not was_everyone_mentioned:
+                    if user_id == 0:
+                        raise HTTPException(status_code=401, detail="You need to log in with a Maltion account to mention everyone.")
                     was_everyone_mentioned = True
-                    await cursor.execute("SELECT user_id FROM community_follows WHERE community_id = %s", (community_id,))
+                    await cursor.execute("SELECT author_id FROM community_follows WHERE community_id = %s", (community_id,))
                     followers = await cursor.fetchall()
                     for f in followers:
                         notify = notification("MNetwork", f"@{username} mentioned everyone in {thread_title} of {community_name}", thread_id, "post_mention")
-                        await send_notification(f["user_id"], notify)
+                        await send_notification(f["author_id"], notify)
                 else:
                     recipient_data = await get_user_information_by_username(recipient)
                     if recipient_data:
@@ -366,7 +422,7 @@ async def router_get_community_threads(community: int):
             result = await cursor.fetchall()
 
             await cursor.execute('''SELECT * FROM threads WHERE community_id = %s AND pinned = 1 LIMIT 50''', (community,))
-            pinned = cursor.fetchall()
+            pinned = await cursor.fetchall()
             return { "threads": result, "pinned": pinned }
 
 @router.get("/mnetwork/get-thread-posts")
@@ -395,6 +451,40 @@ async def router_get_thread_posts(thread: int, user_id = Depends(get_current_use
                     post["extra_info"] = {}
 
     return {"posts": posts}
+
+@router.get("/mnetwork/get-community-posts")
+async def router_get_community_posts(community: int, user_id=Depends(get_current_user_id)):
+    async with get_dict_connection("mnetwork") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute('''
+                SELECT p.* 
+                FROM posts p
+                JOIN threads t ON p.thread_id = t.id
+                WHERE t.community_id = %s
+                ORDER BY p.timestamp DESC
+                LIMIT 10
+            ''', (community,))
+            
+            posts = await cursor.fetchall()
+
+            liked_post_ids = set()
+            if user_id and posts:
+                post_ids = [post["id"] for post in posts]
+                placeholders = ','.join(['%s'] * len(post_ids))
+                query = f'''SELECT post_id FROM post_likes WHERE author_id = %s AND post_id IN ({placeholders})'''
+                await cursor.execute(query, (user_id, *post_ids))
+                liked_rows = await cursor.fetchall()
+                liked_post_ids = {row["post_id"] for row in liked_rows}
+
+            for post in posts:
+                post["liked"] = post["id"] in liked_post_ids
+                try:
+                    post["extra_info"] = json.loads(post["extra_info"])
+                except (TypeError, json.JSONDecodeError):
+                    post["extra_info"] = {}
+
+    return {"posts": posts}
+
 
 @router.get("/mnetwork/search-community")
 async def router_search_community(query: str):
@@ -681,7 +771,7 @@ async def router_mnetwork_get_feed(user_id=Depends(get_current_user_id)):
                 '''SELECT community_id FROM community_follows WHERE author_id = %s''',
                 (user_id,)
             )
-            followed_communities = [row['community_id'] for row in cursor.fetchall()]
+            followed_communities = [row['community_id'] for row in await cursor.fetchall()]
             
             if followed_communities:
                 format_strings = ",".join(['%s'] * len(followed_communities))
@@ -693,8 +783,8 @@ async def router_mnetwork_get_feed(user_id=Depends(get_current_user_id)):
                     ORDER BY t.timestamp DESC
                     LIMIT 30
                 '''
-                cursor.execute(query, tuple(followed_communities))
-                threads = cursor.fetchall()
+                await cursor.execute(query, tuple(followed_communities))
+                threads = await cursor.fetchall()
             else:
                 query = '''
                     SELECT t.*, c.name AS community_name

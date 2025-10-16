@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
+</style>
+<body style="background-color:#f4f4f7; margin:0; padding:40px 0; font-family: Poppins, Arial, sans-serif;">
+  <table width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f4f4f7;">
+    <tr>
+        <td align="center" style="padding-bottom:20px;">
+            <a href="https://www.maltion.com" style="text-decoration: none;"><h2 style="color: #0088ff; font-weight: 700;">Maltion</h2></a>
+        </td>
+    </tr>
+    <tr>
+      <td align="center">
+        <table width="600" cellspacing="0" cellpadding="0" border="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden;">
+          <tr>
+            <td style="background-color:#0088ff; color:#ffffff; text-align:center; padding:20px 0; font-size:24px; font-weight: 500;">
+              Verify your identity
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:30px; color:#333333; font-size:16px;">
+              <p>Hello <strong>{{ name }}</strong>,</p>
+              <p>Your account has been temporarily locked down because someone attempted to sign in to it multiple times, and failed.</p>
+              <p>To unlock it and sign in, go to the sign in form and enter this code when asked:</p>
+              <p style="text-align:center; font-size:22px; font-weight:bold; color:#0088ff;">{{ code }}</p>
+              <h6 style="color: #888; margin: 5px;">* If this wasn't you, absolutely do not unlock your account until you need to sign in yourself.</h6>
+              <h6 style="color: #888; margin: 5px;">* The code expires in 1 hour and incorrect attempts reduce its lifespan by 20 minutes.</h6>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f4f4f7; color:#888888; text-align:center; font-size:13px; padding:15px;">
+              © 2025 Maltion
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

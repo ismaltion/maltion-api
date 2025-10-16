@@ -1,13 +1,13 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, Cookie, UploadFile, File, Request, Form
 from fastapi.responses import JSONResponse
-from models import ChangeFieldRequest, ChangeDateRequest, ChangePasswordRequest, reportAbuse
+from models import ChangeFieldRequest, ChangeDateRequest, ChangePasswordRequest, reportAbuse, createGuestProfile, recoverAcc, verifyRecoverAcc, verifyUnlockAcc
 from auth import get_current_user_id, hash_password, check_password, create_session, validate_session, hash_ip, remove_session, remove_session_by_user_id, check_mclient_password
 from db import get_connection, get_dict_connection
-from utils import get_user_information, send_notification
+from utils import get_user_information, send_notification, send_email, generate_verification_code, validate_verification_code, generate_unblock_email, generate_recovery_email, get_email_users, is_email, get_user_information_by_username
 from typing import Optional, List
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from config import UPLOAD_FOLDER, MAX_FILE_SIZE
-import os, json, re, traceback
+import os, json, re, traceback, math, asyncio, random
 
 USERNAME_REGEX = r'^[a-zA-Z0-9_-]+$'
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -52,21 +52,39 @@ async def register_user(
         invited_by = "System"
     # end of extensive checks    
 
-    async with get_connection("main") as conn:
+    async with get_dict_connection("main") as conn:
         async with conn.cursor() as cursor:
             await cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
-            if cursor.fetchone():
+            result = await cursor.fetchone()
+            if result:
                 raise HTTPException(status_code=400, detail="Username already taken")
 
-    hashed = hash_password(password)
-    stored_ip = hash_ip(client_ip)
+            hashed = hash_password(password)
+            stored_ip = hash_ip(client_ip)
 
-    await cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, country, IP_address, invited_by) VALUES (%s, %s, %s, %s, %s, NOW(), %s, 0, NOW(), %s, %s, %s)", (username, hashed, email, displayName, birthday, biography, country, stored_ip, invited_by))
-    await conn.commit()
-    await cursor.close()
-    await conn.close()
+            await cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, country, IP_address, invited_by) VALUES (%s, %s, %s, %s, %s, NOW(), %s, 0, NOW(), %s, %s, %s)", (username, hashed, email, displayName, birthday, biography, country, stored_ip, invited_by))
+            await conn.commit()
 
     return {"message": "User registered"}
+
+@router.post("/create-guest-profile")
+async def create_guest_profile(request: Request, payload: createGuestProfile):
+    nickname = payload.nickname
+    client_ip = (request.headers.get("x-real-ip") or request.headers.get("X-Forwarded-For") or request.client.host)
+
+    if len(nickname) < 4 or len(nickname) > 20 or " " in nickname:
+        raise HTTPException(status_code=400, detail="Nickname must be between 4 and 20 characters long, with no spaces.")
+    
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            hashed_ip = hash_ip(client_ip)
+            await cursor.execute("SELECT id FROM guests WHERE ip_address = %s", (hashed_ip,))
+            result = await cursor.fetchone()
+            if result:
+                raise HTTPException(status_code=400, detail="You have already created a guest profile.")
+
+            await cursor.execute("INSERT INTO guests (nickname, ip_address) VALUES (%s, %s)", (nickname, hashed_ip))
+            await conn.commit()
 
 @router.post("/mclient-migration")
 async def mclient_migration(
@@ -106,7 +124,7 @@ async def mclient_migration(
                 
                 login_attempts = result["loginattempts"]
                 if login_attempts > 5:
-                    return JSONResponse(status_code=403, content={"detail": "This account has been temporally disabled for multiple failed attempts."})
+                    return JSONResponse(status_code=403, content={"detail": "This account has been temporarily disabled for multiple failed attempts."})
 
                 mclient_hash = result["password"]
                 if not check_mclient_password(password, mclient_hash):
@@ -176,21 +194,45 @@ async def mclient_migration(
 
 @router.post("/login")
 async def route_login_user(username: str = Body(...), password: str = Body(...)):
+    LOCK_MESSAGE = "This account has been temporarily blocked for multiple failed login attempts. Please try again later, or unblock it using the link sent to your email address."
+
+    async def lock_account(cursor, username, lock_amount, utcnow):
+        lock_factor = math.ceil(5 ** (lock_amount + 1)) # exponential growth of time to wait
+        later = utcnow + timedelta(minutes=int(lock_factor))
+        await cursor.execute("UPDATE users SET unlock_time = %s, lock_amount = lock_amount + 1 WHERE username = %s", (later, username))
+        await generate_unblock_email(username)
+
+    await asyncio.sleep(random.randint(5, 10) * 0.1) # timing variator
+
     async with get_connection() as conn:
         async with conn.cursor() as cursor:
-            await cursor.execute("SELECT id, password, mclient_reserved FROM users WHERE username = %s", (username,))
+            await cursor.execute("SELECT id, password, loginAttempts, unlock_time, lock_amount FROM users WHERE username = %s", (username,))
             user = await cursor.fetchone()
+            utcnow = datetime.utcnow()
 
             if not user:
-                raise HTTPException(status_code=401, detail="Invalid credentials")
+                raise HTTPException(status_code=401, detail="Incorrect username.")
 
-            user_id, hashed, mclient_reserved = user
-            
+            user_id, hashed, loginAttempts, unlock_time, lock_amount = user
+            if not unlock_time:
+                unlock_time = utcnow
+
+            if unlock_time > utcnow:
+                raise HTTPException(status_code=403, detail=LOCK_MESSAGE)
+
             if not check_password(password, hashed):
-                raise HTTPException(status_code=401, detail="Invalid credentials")
+                if loginAttempts >= 3:
+                    await lock_account(cursor, username, lock_amount, utcnow)
+                    await conn.commit()
+
+                await cursor.execute("UPDATE users SET loginAttempts = loginAttempts + 1 WHERE username = %s", (username,))
+                await conn.commit()
+                raise HTTPException(status_code=401, detail="Incorrect password.")
 
             session_token, expires_at = await create_session(conn, user_id)
 
+            await cursor.execute("UPDATE users SET loginAttempts = 0, lock_amount = 0 WHERE username = %s", (username,))
+            await conn.commit()
     response = Response(content='{"message": "Login successful"}', media_type="application/json")
     response.set_cookie(
         key="session_token",
@@ -375,6 +417,146 @@ async def route_changeEmail(payload: ChangeFieldRequest, user_id: int = Depends(
             await conn.commit()
     
     return Response(status_code=200)
+
+@router.post("/verify-email")
+async def route_verifyEmail(user_id: int = Depends(get_current_user_id)):
+    async with get_dict_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found - You need to login first.")
+        
+        email = user_info["email"]
+        if user_info["email_verified"] == 1:
+            raise HTTPException(status_code=400, detail="Email already verified.")
+        
+        verification_code = generate_verification_code(user_id, "email")
+
+        async with conn.cursor() as cursor:
+            await cursor.execute('''UPDATE users SET email_verification_code = %s WHERE id = %s''', (verification_code, user_id))
+            await conn.commit()
+        
+        subject = "Verify your email address"
+        body = f"Hello {user_info['displayName']},\n\nPlease verify your email address by using the following code:\n\n{verification_code}\n\nIf you did not request this, please ignore this email.\n\nBest regards,\nThe Maltion Team"
+        await send_email(email, subject, body)
+
+    return Response(status_code=200)
+
+@router.get("/email-test")
+async def route_email_echo_test(user_id: int = Depends(get_current_user_id)):
+    async with get_dict_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found - You need to login first.")
+        
+        email = user_info["email"]
+        
+        verification_code = await generate_verification_code(user_id, "email")
+        subject = "Verify your email address - maltion.com"
+
+        await send_email(
+            subject="Verify Your Email",
+            recipients=[email],
+            template_name="email_verification.html",
+            context={"name": user_info["displayName"], "code": verification_code}
+        )
+
+    return Response(status_code=200)
+
+@router.post("/confirm-email")
+async def route_confirmEmail(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):
+    async with get_dict_connection() as conn:
+        user_info = await get_user_information(user_id, conn)
+        newValue = payload.value
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found - You need to login first.")
+        
+        verification_code = str(newValue)
+        if user_info["email_verified"] == 1:
+            raise HTTPException(status_code=400, detail="Email already verified.")
+        
+        if not validate_verification_code(user_id, "email", verification_code):
+            raise HTTPException(status_code=400, detail="Invalid verification code.")
+        
+        async with conn.cursor() as cursor:
+            await cursor.execute('''UPDATE users SET email_verified = 1, email_verification_code = NULL WHERE id = %s''', (user_id,))
+            await conn.commit()
+    
+    return Response(status_code=200)
+
+@router.post("/recover-acc")
+async def route_recoverAccount(payload: recoverAcc):
+    username = payload.username
+    print(username)
+    async with get_dict_connection() as conn:
+        user_info = await get_user_information_by_username(username, conn)
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found.")
+        
+        await generate_recovery_email(username)
+
+    return Response(status_code=200)
+
+@router.post("/verify-recover-acc")
+async def route_verifyRecoveredAccount(payload: verifyRecoverAcc):
+    username = payload.username
+    verification_code = payload.verification_code
+    password = payload.password
+
+    if len(password) < 6 or len(password) > 64:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long with a limit of 64 characters.")
+    
+    async with get_dict_connection() as conn:
+        user_info = await get_user_information_by_username(username)
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found.")
+        
+        user_id = user_info["id"]
+        if await validate_verification_code(user_id, "recovery", verification_code):
+            hashed = hash_password(password)
+
+            async with conn.cursor() as cursor:
+                await cursor.execute('''UPDATE users SET password = %s WHERE id = %s''', (hashed, user_id))
+                await conn.commit()
+
+            session_token, expires_at = await create_session(conn, user_id)
+
+            response = Response(content='{"message": "Login successful"}', media_type="application/json")
+            response.set_cookie(
+                key="session_token",
+                value=session_token,
+                httponly=True,
+                samesite="lax",
+                max_age=7*24*3600
+            )
+            return response
+        else:
+            raise HTTPException(status_code=401, detail="Invalid code.")
+        
+@router.post("/verify-unlock-acc")
+async def route_verifyUnlockedAccount(payload: verifyUnlockAcc):
+    username = payload.username
+    verification_code = payload.verification_code
+    
+    async with get_dict_connection() as conn:
+        user_info = await get_user_information_by_username(username)
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found.")
+        
+        user_id = user_info["id"]
+        if await validate_verification_code(user_id, "unblock", verification_code):
+            session_token, expires_at = await create_session(conn, user_id)
+
+            response = Response(content='{"message": "Login successful"}', media_type="application/json")
+            response.set_cookie(
+                key="session_token",
+                value=session_token,
+                httponly=True,
+                samesite="lax",
+                max_age=7*24*3600
+            )
+            return response
+        else:
+            raise HTTPException(status_code=401, detail="Invalid code.")
 
 @router.post("/change-biography")
 async def route_changeBiography(payload: ChangeFieldRequest, user_id: int = Depends(get_current_user_id)):

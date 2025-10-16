@@ -111,3 +111,18 @@ class sendNotification(BaseModel):
 class addBadge(BaseModel):
     username: str
     badge: str
+
+class createGuestProfile(BaseModel):
+    nickname: str
+
+class recoverAcc(BaseModel):
+    username: str
+
+class verifyRecoverAcc(BaseModel):
+    username: str
+    verification_code: str
+    password: str
+
+class verifyUnlockAcc(BaseModel):
+    username: str
+    verification_code: str

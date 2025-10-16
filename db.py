@@ -14,7 +14,6 @@ DB_MNETWORK_NAME = os.getenv("DB_MNETWORK_NAME")
 DB_MCLIENT_NAME = os.getenv("DB_MCLIENT_NAME")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-
 async def _connect_to_db(database: str):
     if database == "main":
         db_name = DB_MAIN_NAME

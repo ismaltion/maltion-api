@@ -1,7 +1,11 @@
 from db import get_connection, get_dict_connection
 from datetime import datetime, timedelta
 from fastapi import HTTPException
-import json
+from fastapi_mail import FastMail, MessageSchema
+from config import EMAIL_CONFIG
+from jinja2 import Environment, FileSystemLoader
+from auth import hash_ip
+import json, secrets, re
 
 async def get_user_information(user_id, conn=None):
     if conn:
@@ -57,6 +61,27 @@ async def get_user_information_by_username(username, conn=None):
     return user_info
 
 
+async def get_email_users(email, conn=None):
+    if conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT id, username FROM users WHERE email = %s", (email,))
+            row = await cursor.fetchone()
+    else:
+        async with get_dict_connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute("SELECT id, username FROM users WHERE email = %s", (email,))
+                row = await cursor.fetchone()
+    if not row:
+        return None
+    
+    return row
+
+
+def is_email(string):
+    pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+    return re.match(pattern, string) is not None
+
+
 async def send_notification(user_id, notification, conn=None):
     if conn:
         async with conn.cursor() as cursor:
@@ -100,6 +125,26 @@ async def rate_limiter(user_id):
             else:
                 return False
 
+async def rate_limiter_guest_ip(ip_address):
+    hashed_ip = hash_ip(ip_address)
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT id, last_activity FROM guests WHERE ip_address = %s", (hashed_ip,))
+            result = await cursor.fetchone()
+            if not result:
+                raise HTTPException(status_code=400, detail="Choose a guest nickname first (or log in).")
+
+            user_id = result["id"]
+            last_interaction = result["last_activity"]
+            utcnow = datetime.utcnow()
+
+            if utcnow > last_interaction:
+                later = utcnow + timedelta(seconds=60)
+                await cursor.execute("UPDATE guests SET last_activity = %s WHERE id = %s", (later, user_id))
+                await conn.commit()
+                return True
+            else:
+                return False
 
 async def check_ban(user_id, module="main"):
     async with get_dict_connection("main") as conn:
@@ -178,3 +223,102 @@ async def add_badge(user_id, new_badge):
     if new_badge not in badges:
         badges.append(new_badge)
     await set_setting(user_id, "Badges", json.dumps(badges))
+
+env = Environment(loader=FileSystemLoader("templates"))
+
+async def send_email(subject, recipients, template_name, context: dict):
+    template = env.get_template(template_name)
+    html_content = template.render(context)
+    print("---------- EMAIL SENT ----------")
+    print(f"Subject: {subject}")
+    print(f"Recipients: {len(recipients)}")
+    print(f"Subtype: {template_name}")
+    message = MessageSchema(
+        subject=subject,
+        recipients=recipients,
+        body=html_content,
+        subtype="html"
+    )
+
+    fm = FastMail(EMAIL_CONFIG)
+    await fm.send_message(message)
+
+
+async def generate_verification_code(user_id: int, code_type):
+    code = "".join(secrets.choice("0123456789") for _ in range(8))
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM verification_codes WHERE user_id = %s AND type = %s", (user_id, code_type))
+            result = await cursor.fetchone()
+            if result:
+                last_code_time = result["timestamp"]
+                if last_code_time + timedelta(minutes=1) > datetime.utcnow():
+                    raise HTTPException(status_code=401, detail="Please wait 1 minute before requesting another code.")
+            await cursor.execute("DELETE FROM verification_codes WHERE user_id = %s AND type = %s", (user_id, code_type))
+            await cursor.execute("INSERT INTO verification_codes (user_id, code, type, attempts, timestamp) VALUES (%s, %s, %s, %s, %s)", (user_id, code, code_type, 3, datetime.utcnow()))
+            await conn.commit()
+    return code
+
+async def validate_verification_code(user_id: int, code_type, code):
+    async with get_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM verification_codes WHERE user_id = %s AND type = %s ORDER BY timestamp DESC LIMIT 1", (user_id, code_type))
+            result = await cursor.fetchone()
+            if result:
+                code_id, user_id, correct_code, code_type, attempts, timestamp = result
+                expiration = timestamp + timedelta(hours=1)
+
+                if attempts > 0 and expiration > datetime.utcnow():
+                    if code == correct_code:
+                        print(f"{code} is equal to {correct_code}")
+                        await cursor.execute("DELETE FROM verification_codes WHERE user_id = %s AND type = %s", (user_id, code_type))
+                        await conn.commit()
+                        return True
+                    else:
+                        await cursor.execute("UPDATE verification_codes set attempts = attempts - 1 WHERE user_id = %s AND type = %s", (user_id, code_type))
+                        await conn.commit()
+                        return False
+                else:
+                    await cursor.execute("DELETE FROM verification_codes WHERE user_id = %s AND type = %s", (user_id, code_type))
+                    await conn.commit()
+                    return False
+            else:
+                return False
+            
+async def get_guest_info(ip_address):
+    hashed_ip = hash_ip(ip_address)
+    async with get_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT id, nickname FROM guests WHERE ip_address = %s", (hashed_ip,))
+            result = await cursor.fetchone()
+            if result:
+                return result[0], result[1]
+            else:
+                return None
+            
+async def generate_unblock_email(username):
+    user_info = await get_user_information_by_username(username)
+    user_id = user_info["id"]
+    user_email = user_info["email"]
+    verification_code = await generate_verification_code(user_id, "unblock")
+    await send_email(
+            subject="Unlock your account",
+            recipients=[user_email],
+            template_name="acc_unblock.html",
+            context={"name": user_info["displayName"], "code": verification_code}
+        )
+
+async def generate_recovery_email(username):
+    user_info = await get_user_information_by_username(username)
+    user_id = user_info["id"]
+    user_email = user_info["email"]
+    verification_code = await generate_verification_code(user_id, "recovery")
+
+    print(f"Requested recovery email for {username} with email: {user_email}")
+
+    await send_email(
+            subject="Recover your account",
+            recipients=[user_email],
+            template_name="acc_recovery.html",
+            context={"name": user_info["displayName"], "code": verification_code}
+        )
