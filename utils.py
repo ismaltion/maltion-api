@@ -112,10 +112,13 @@ async def rate_limiter(user_id):
             await cursor.execute("SELECT last_mnetwork_interaction FROM users WHERE id = %s", (user_id,))
             result = await cursor.fetchone()
             if not result:
-                raise Exception(f"User not found: ID{user_id}")
+                return True
 
             last_interaction = result["last_mnetwork_interaction"]
             utcnow = datetime.utcnow()
+
+            if not last_interaction:
+                return True
 
             if utcnow > last_interaction:
                 later = utcnow + timedelta(seconds=10)
@@ -132,11 +135,14 @@ async def rate_limiter_guest_ip(ip_address):
             await cursor.execute("SELECT id, last_activity FROM guests WHERE ip_address = %s", (hashed_ip,))
             result = await cursor.fetchone()
             if not result:
-                raise HTTPException(status_code=400, detail="Choose a guest nickname first (or log in).")
+                return True
 
             user_id = result["id"]
             last_interaction = result["last_activity"]
             utcnow = datetime.utcnow()
+
+            if not last_interaction:
+                return True
 
             if utcnow > last_interaction:
                 later = utcnow + timedelta(seconds=60)

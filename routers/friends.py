@@ -153,6 +153,8 @@ async def router_friend_requests(user_id: int = Depends(get_current_user_id)):
     async with get_dict_connection("main") as conn:
         async with conn.cursor() as cursor:
             await cursor.execute("SELECT * FROM friends WHERE recipient_id = %s AND status = %s", (user_id, "pending"))
-            requests = await cursor.fetchall()
+            incoming_requests = await cursor.fetchall()
+            await cursor.execute("SELECT * FROM friends WHERE author_id = %s AND status = %s", (user_id, "pending"))
+            outgoing_requests = await cursor.fetchall()
 
-        return requests
+        return {"incoming": incoming_requests, "outgoing": outgoing_requests}

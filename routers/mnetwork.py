@@ -100,7 +100,7 @@ async def router_create_community(payload: mnetwork_create_community, user_id = 
     
     await check_ban(user_id, "MNetwork")
 
-    if rate_limiter(user_id) is False:
+    if await rate_limiter(user_id) is False:
         raise HTTPException(status_code=429, detail="Slow down!")
     
     name = payload.name
@@ -141,12 +141,12 @@ async def router_create_thread(
     if user_id:
         await check_ban(user_id, "MNetwork")
 
-        if rate_limiter(user_id) is False:
+        if await rate_limiter(user_id) is False:
             raise HTTPException(status_code=429, detail="Slow down!")
     else:
         user_id = 0
 
-        if rate_limiter_guest_ip(client_ip) is False:
+        if await rate_limiter_guest_ip(client_ip) is False:
             raise HTTPException(status_code=429, detail="Guests can only post once every 60 seconds. Please try again later (or log in).")
     
     async with get_dict_connection("mnetwork") as conn:
@@ -227,12 +227,12 @@ async def router_create_post(
     if user_id:    
         await check_ban(user_id, "MNetwork")
 
-        if rate_limiter(user_id) is False:
+        if await rate_limiter(user_id) is False:
             raise HTTPException(status_code=429, detail="Slow down!")
     else:
         user_id = 0
 
-        if rate_limiter_guest_ip(client_ip) is False:
+        if await rate_limiter_guest_ip(client_ip) is False:
             raise HTTPException(status_code=429, detail="Guests can only post once every 60 seconds. Please try again later (or log in).")
 
     async with get_dict_connection("mnetwork") as conn:
