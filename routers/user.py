@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from models import ChangeFieldRequest, ChangeDateRequest, ChangePasswordRequest, reportAbuse, createGuestProfile, recoverAcc, verifyRecoverAcc, verifyUnlockAcc
 from auth import get_current_user_id, hash_password, check_password, create_session, validate_session, hash_ip, remove_session, remove_session_by_user_id, check_mclient_password
 from db import get_connection, get_dict_connection
-from utils import get_user_information, send_notification, send_email, generate_verification_code, validate_verification_code, generate_unblock_email, generate_recovery_email, get_email_users, is_email, get_user_information_by_username
+from utils import get_user_information, send_notification, send_email, generate_verification_code, validate_verification_code, generate_unblock_email, generate_recovery_email, get_email_users, is_email, get_user_information_by_username, generate_verification_email
 from typing import Optional, List
 from datetime import date, datetime, timedelta
 from config import UPLOAD_FOLDER, MAX_FILE_SIZE
@@ -35,6 +35,8 @@ async def register_user(
     if not displayName:
         displayName = username
 
+    now = datetime.utcnow()
+
     # start of extensive checks
     if len(username) < 4 or len(username) > 20 or " " in username:
         raise HTTPException(status_code=400, detail="Username must be between 4 and 20 characters long, with no spaces.")
@@ -62,8 +64,10 @@ async def register_user(
             hashed = hash_password(password)
             stored_ip = hash_ip(client_ip)
 
-            await cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, country, IP_address, invited_by) VALUES (%s, %s, %s, %s, %s, NOW(), %s, 0, NOW(), %s, %s, %s)", (username, hashed, email, displayName, birthday, biography, country, stored_ip, invited_by))
+            await cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, last_mnetwork_interaction, country, IP_address, invited_by, unlock_time) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s)", (username, hashed, email, displayName, birthday, now, biography, now, now, country, stored_ip, invited_by, now))
             await conn.commit()
+
+            generate_verification_email(username)
 
     return {"message": "User registered"}
 
@@ -83,7 +87,9 @@ async def create_guest_profile(request: Request, payload: createGuestProfile):
             if result:
                 raise HTTPException(status_code=400, detail="You have already created a guest profile.")
 
-            await cursor.execute("INSERT INTO guests (nickname, ip_address) VALUES (%s, %s)", (nickname, hashed_ip))
+            dt = datetime(year=2000, month=1, day=1, hour=0, minute=0, second=0)
+            now = datetime.utcnow()
+            await cursor.execute("INSERT INTO guests (nickname, ip_address, timestamp, last_activity) VALUES (%s, %s, %s, %s)", (nickname, hashed_ip, now, dt))
             await conn.commit()
 
 @router.post("/mclient-migration")
@@ -413,7 +419,8 @@ async def route_changeEmail(payload: ChangeFieldRequest, user_id: int = Depends(
             raise HTTPException(status_code=400, detail="Invalid email address.")
         
         async with conn.cursor() as cursor:
-            await cursor.execute('''UPDATE users SET email = %s WHERE id = %s''', (newValue, user_id))
+            await cursor.execute('''UPDATE users SET email = %s, trust = 0 WHERE id = %s''', (newValue, user_id))
+            await generate_verification_email(user_id)
             await conn.commit()
     
     return Response(status_code=200)
@@ -425,40 +432,10 @@ async def route_verifyEmail(user_id: int = Depends(get_current_user_id)):
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
         
-        email = user_info["email"]
-        if user_info["email_verified"] == 1:
+        if user_info["trust"] > 0:
             raise HTTPException(status_code=400, detail="Email already verified.")
         
-        verification_code = generate_verification_code(user_id, "email")
-
-        async with conn.cursor() as cursor:
-            await cursor.execute('''UPDATE users SET email_verification_code = %s WHERE id = %s''', (verification_code, user_id))
-            await conn.commit()
-        
-        subject = "Verify your email address"
-        body = f"Hello {user_info['displayName']},\n\nPlease verify your email address by using the following code:\n\n{verification_code}\n\nIf you did not request this, please ignore this email.\n\nBest regards,\nThe Maltion Team"
-        await send_email(email, subject, body)
-
-    return Response(status_code=200)
-
-@router.get("/email-test")
-async def route_email_echo_test(user_id: int = Depends(get_current_user_id)):
-    async with get_dict_connection() as conn:
-        user_info = await get_user_information(user_id, conn)
-        if not user_info:
-            raise HTTPException(status_code=404, detail="User not found - You need to login first.")
-        
-        email = user_info["email"]
-        
-        verification_code = await generate_verification_code(user_id, "email")
-        subject = "Verify your email address - maltion.com"
-
-        await send_email(
-            subject="Verify Your Email",
-            recipients=[email],
-            template_name="email_verification.html",
-            context={"name": user_info["displayName"], "code": verification_code}
-        )
+        await generate_verification_email(user_id)
 
     return Response(status_code=200)
 
@@ -471,14 +448,14 @@ async def route_confirmEmail(payload: ChangeFieldRequest, user_id: int = Depends
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
         
         verification_code = str(newValue)
-        if user_info["email_verified"] == 1:
+        if user_info["trust"] > 0:
             raise HTTPException(status_code=400, detail="Email already verified.")
         
-        if not validate_verification_code(user_id, "email", verification_code):
+        if not await validate_verification_code(user_id, "verify", verification_code):
             raise HTTPException(status_code=400, detail="Invalid verification code.")
         
         async with conn.cursor() as cursor:
-            await cursor.execute('''UPDATE users SET email_verified = 1, email_verification_code = NULL WHERE id = %s''', (user_id,))
+            await cursor.execute('''UPDATE users SET trust = 1 WHERE id = %s''', (user_id,))
             await conn.commit()
     
     return Response(status_code=200)

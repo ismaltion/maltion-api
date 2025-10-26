@@ -120,7 +120,7 @@ async def rate_limiter(user_id):
             if not last_interaction:
                 return True
 
-            if utcnow > last_interaction:
+            if utcnow >= last_interaction:
                 later = utcnow + timedelta(seconds=10)
                 await cursor.execute("UPDATE users SET last_mnetwork_interaction = %s WHERE id = %s", (later, user_id))
                 await conn.commit()
@@ -144,7 +144,7 @@ async def rate_limiter_guest_ip(ip_address):
             if not last_interaction:
                 return True
 
-            if utcnow > last_interaction:
+            if utcnow >= last_interaction:
                 later = utcnow + timedelta(seconds=60)
                 await cursor.execute("UPDATE guests SET last_activity = %s WHERE id = %s", (later, user_id))
                 await conn.commit()
@@ -326,5 +326,17 @@ async def generate_recovery_email(username):
             subject="Recover your account",
             recipients=[user_email],
             template_name="acc_recovery.html",
+            context={"name": user_info["displayName"], "code": verification_code}
+        )
+
+async def generate_verification_email(username):
+    user_info = await get_user_information_by_username(username)
+    user_id = user_info["id"]
+    user_email = user_info["email"]
+    verification_code = await generate_verification_code(user_id, "verify")
+    await send_email(
+            subject="Verify your email address",
+            recipients=[user_email],
+            template_name="email_verification.html",
             context={"name": user_info["displayName"], "code": verification_code}
         )
