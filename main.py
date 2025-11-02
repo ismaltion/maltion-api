@@ -4,6 +4,10 @@ from starlette.responses import Response
 from config import ALLOWED_ORIGINS
 from routers import user, websocket, stats, friends, mnetwork, rdmedics, cheatgpt, admin
 from db import get_dict_connection
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from datetime import datetime
+from utils import send_mnetwork_digest, send_daily_digest
+import asyncio, json
 
 app = FastAPI()
 
@@ -38,7 +42,12 @@ THREAD_ID_MAP = {
 }
 
 @app.on_event("startup")
-async def transfer_users():
+async def startup_tasks():
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(lambda: asyncio.create_task(send_daily_digest()), "cron", hour=18, minute=0)
+    scheduler.start()
+
+    # Automatically transfer users from mclient database
     async with get_dict_connection("mclient") as conn_src, \
          get_dict_connection("main") as conn_dest:
         
@@ -70,7 +79,5 @@ async def transfer_users():
                         (username, row['email'], row['description'])
                     )
                 await conn_dest.commit()
-
-    
 
 print("Server started.")

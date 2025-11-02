@@ -14,6 +14,10 @@ EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 
 router = APIRouter()
 
+@router.post("/ping")
+async def router_ping():
+    return {"message": "Maltion API is working correctly."}
+
 @router.post("/register")
 async def register_user(
     request: Request,

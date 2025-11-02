@@ -34,7 +34,7 @@ class ChangePasswordRequest(BaseModel):
 
 class add_friend(BaseModel):
     friend_name: str
-    message: str
+    message: Optional[str] = "No message added."
 
 class decline_friend_request(BaseModel):
     friend_name: str

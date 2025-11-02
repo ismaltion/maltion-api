@@ -1,13 +1,19 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-import json
-from db import get_connection
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
+from db import get_connection, get_dict_connection
 from datetime import datetime
+from utils import get_user_information, get_user_information_by_username, notification, send_notification
+from auth import get_current_user_id
+from typing import Set
+from collections import defaultdict
+from starlette.websockets import WebSocketState
+import json
 
 router = APIRouter()
 
 clients = []
 typing_users = set()
 
+# this one is just a test
 @router.websocket("/connect")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -95,3 +101,154 @@ async def websocket_endpoint(websocket: WebSocket):
 
     except WebSocketDisconnect:
         clients.remove(websocket)
+
+active_conversations: dict[tuple[int,int], dict[int, WebSocket]] = {}
+last_typing_timestamps: dict[tuple[int,int], dict[int, float]] = {}
+
+async def safe_send(ws: WebSocket, message: dict):
+    try:
+        await ws.send_json(message)
+    except Exception:
+        pass
+
+
+@router.websocket("/chat")
+async def chat_ws(
+    websocket: WebSocket,
+    user_id: int = Depends(get_current_user_id),
+    friend_username: str = Query(...)
+):
+    friend_info = await get_user_information_by_username(friend_username)
+    if not friend_info:
+        await websocket.close(code=1008)
+        return
+    friend_id = friend_info["id"]
+
+    user_info = await get_user_information(user_id)
+    if not user_info:
+        await websocket.close(code=1008)
+        return
+    username = user_info["username"]
+
+    await websocket.accept()
+
+    conversation_key = tuple(sorted([user_id, friend_id]))
+
+    if conversation_key not in active_conversations:
+        active_conversations[conversation_key] = {}
+        last_typing_timestamps[conversation_key] = {}
+
+    active_conversations[conversation_key][user_id] = websocket
+
+    friend_ws = active_conversations[conversation_key].get(friend_id)
+    friend_online = friend_ws is not None
+    friend_last_typing = last_typing_timestamps[conversation_key].get(friend_id, 0)
+
+    await safe_send(websocket, {
+        "type": "status",
+        "status": "Online" if friend_online else "Offline",
+        "username": friend_username,
+        "last_typing": friend_last_typing
+    })
+
+    if friend_ws:
+        await safe_send(friend_ws, {"type": "status", "status": "Online", "username": username})
+
+    try:
+        async with get_dict_connection("mnetwork") as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT author_id, author_name, recipient_id, content, timestamp
+                    FROM chat
+                    WHERE (author_id=%s AND recipient_id=%s) OR (author_id=%s AND recipient_id=%s)
+                    ORDER BY timestamp DESC
+                    LIMIT 20
+                    """,
+                    (user_id, friend_id, friend_id, user_id)
+                )
+                history = await cursor.fetchall()
+    except Exception:
+        history = []
+
+    for row in reversed(history):
+        await safe_send(websocket, {
+            "type": "message",
+            "timestamp": str(row["timestamp"]),
+            "author_id": row["author_id"],
+            "author_name": row["author_name"],
+            "recipient_id": row["recipient_id"],
+            "content": row["content"]
+        })
+
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            data = json.loads(raw)
+            event_type = data.get("type", "message")
+
+            if event_type == "typing":
+                now_ts = datetime.utcnow().timestamp()
+                last_typing_timestamps[conversation_key][user_id] = now_ts
+
+                friend_ws = active_conversations[conversation_key].get(friend_id)
+                if friend_ws:
+                    await safe_send(friend_ws, {
+                        "type": "typing",
+                        "username": username,
+                        "last_typing": now_ts
+                    })
+                continue
+
+            elif event_type == "message":
+                content = data.get("content", "").strip()
+                if not content:
+                    continue
+
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                try:
+                    async with get_dict_connection("mnetwork") as conn:
+                        async with conn.cursor() as cursor:
+                            await cursor.execute(
+                                """
+                                INSERT INTO chat (author_id, author_name, recipient_id, content)
+                                VALUES (%s, %s, %s, %s)
+                                """,
+                                (user_id, username, friend_id, content)
+                            )
+                            await conn.commit()
+                except Exception:
+                    await safe_send(websocket, {"error": "Failed to save message"})
+                    continue
+
+                message_payload = {
+                    "type": "message",
+                    "timestamp": timestamp,
+                    "author_id": user_id,
+                    "author_name": username,
+                    "recipient_id": friend_id,
+                    "content": content
+                }
+
+                await safe_send(websocket, message_payload)
+
+                friend_ws = active_conversations[conversation_key].get(friend_id)
+                if friend_ws:
+                    await safe_send(friend_ws, message_payload)
+                else:
+                    notify = notification("mnetwork", f"You have new message(s) from @{username}", friend_id, "chat")
+                    await send_notification(friend_id, notify, no_spam=True)
+
+    except WebSocketDisconnect:
+        if conversation_key in active_conversations:
+            active_conversations[conversation_key].pop(user_id, None)
+            last_typing_timestamps[conversation_key].pop(user_id, None)
+
+            friend_ws = active_conversations[conversation_key].get(friend_id)
+            if friend_ws:
+                await safe_send(friend_ws, {"type": "status", "status": "Offline", "username": username})
+
+            if not active_conversations[conversation_key]:
+                del active_conversations[conversation_key]
+                del last_typing_timestamps[conversation_key]

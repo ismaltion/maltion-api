@@ -5,7 +5,8 @@ from fastapi_mail import FastMail, MessageSchema
 from config import EMAIL_CONFIG
 from jinja2 import Environment, FileSystemLoader
 from auth import hash_ip
-import json, secrets, re
+from itertools import islice
+import json, secrets, re, asyncio
 
 async def get_user_information(user_id, conn=None):
     if conn:
@@ -82,9 +83,17 @@ def is_email(string):
     return re.match(pattern, string) is not None
 
 
-async def send_notification(user_id, notification, conn=None):
+async def send_notification(user_id, notification, conn=None, no_spam=False):
     if conn:
         async with conn.cursor() as cursor:
+            if no_spam:
+                await cursor.execute("SELECT * FROM notifications WHERE user_id = %s AND type = %s AND reference_id = %s AND content = %s ORDER BY timestamp DESC LIMIT 1",
+                    (user_id, notification.get("type"), notification.get("reference_id"), notification.get("content"))
+                )
+                existing = await cursor.fetchone()
+                if existing:
+                    return
+
             await cursor.execute(
                 "INSERT INTO notifications (user_id, type, content, reference_id, reference_type) VALUES (%s, %s, %s, %s, %s)",
                 (user_id, notification.get("type"), notification.get("content"),
@@ -94,6 +103,13 @@ async def send_notification(user_id, notification, conn=None):
     else:
         async with get_connection("main") as conn:
             async with conn.cursor() as cursor:
+                if no_spam:
+                    await cursor.execute("SELECT * FROM notifications WHERE user_id = %s AND type = %s AND reference_id = %s AND content = %s ORDER BY timestamp DESC LIMIT 1",
+                        (user_id, notification.get("type"), notification.get("reference_id"), notification.get("content"))
+                    )
+                    existing = await cursor.fetchone()
+                    if existing:
+                        return
                 await cursor.execute(
                     "INSERT INTO notifications (user_id, type, content, reference_id, reference_type) VALUES (%s, %s, %s, %s, %s)",
                     (user_id, notification.get("type"), notification.get("content"),
@@ -329,9 +345,8 @@ async def generate_recovery_email(username):
             context={"name": user_info["displayName"], "code": verification_code}
         )
 
-async def generate_verification_email(username):
-    user_info = await get_user_information_by_username(username)
-    user_id = user_info["id"]
+async def generate_verification_email(user_id):
+    user_info = await get_user_information(user_id)
     user_email = user_info["email"]
     verification_code = await generate_verification_code(user_id, "verify")
     await send_email(
@@ -340,3 +355,103 @@ async def generate_verification_email(username):
             template_name="email_verification.html",
             context={"name": user_info["displayName"], "code": verification_code}
         )
+    
+async def send_mnetwork_digest(user_id):
+    user_info = await get_user_information(user_id)
+    user_email = user_info["email"]
+
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                "SELECT * FROM notifications WHERE user_id = %s ORDER BY timestamp DESC LIMIT 3",
+                (user_id,)
+            )
+            notifications = await cursor.fetchall()
+
+    threads = await get_mnetwork_feed(user_id)
+    threads_3 = threads[:3]
+
+    post_context = {}
+    for i, thread in enumerate(threads_3, start=1):
+        post_context[f"post{i}username"] = thread.get("author_name")
+        post_context[f"post{i}title"] = thread.get("title")
+        post_context[f"post{i}content"] = thread.get("content")
+
+    for i in range(1, 4):
+        if i <= len(notifications):
+            post_context[f"notify{i}"] = notifications[i - 1].get("message")
+        else:
+            post_context[f"notify{i}"] = None
+
+    await send_email(
+        subject="MNetwork Digest",
+        recipients=[user_email],
+        template_name="mnetwork_digest.html",
+        context=post_context
+    )
+
+async def get_mnetwork_feed(user_id = 0):
+    async with get_dict_connection("mnetwork") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                '''SELECT community_id FROM community_follows WHERE author_id = %s''',
+                (user_id,)
+            )
+            followed_communities = [row['community_id'] for row in await cursor.fetchall()]
+
+            if followed_communities:
+                format_strings = ",".join(['%s'] * len(followed_communities))
+                query = f'''
+                    SELECT t.*, c.name AS community_name
+                    FROM threads t
+                    JOIN communities c ON t.community_id = c.id
+                    WHERE t.community_id IN ({format_strings})
+                    ORDER BY t.timestamp DESC
+                    LIMIT 30
+                '''
+                await cursor.execute(query, tuple(followed_communities))
+                threads = await cursor.fetchall()
+            else:
+                query = '''
+                    SELECT t.*, c.name AS community_name
+                    FROM threads t
+                    JOIN communities c ON t.community_id = c.id
+                    WHERE t.community_id = 3
+                    ORDER BY t.timestamp DESC
+                    LIMIT 30
+                '''
+                await cursor.execute(query)
+                threads = await cursor.fetchall()
+
+            for thread in threads:
+                try:
+                    thread["extra_info"] = json.loads(thread.get("extra_info", "{}"))
+                except (TypeError, json.JSONDecodeError):
+                    thread["extra_info"] = {}
+
+            return threads
+        
+async def send_daily_digest():
+    semaphore = asyncio.Semaphore(10)
+    async def send_one(row):
+        async with semaphore:
+            try:
+                settings = json.loads(row["settings"])
+                if settings.get("receiveNotificationsEmail", True):
+                    await send_mnetwork_digest(row["id"])
+            except Exception as e:
+                print(f"Failed sending to {row['email']}: {e}")
+
+    try:
+        async with get_dict_connection("main") as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute("SELECT id, email, settings FROM users WHERE email IS NOT NULL")
+                batch_size = 100
+                while True:
+                    rows = await cursor.fetchmany(batch_size)
+                    if not rows:
+                        break
+                    tasks = [asyncio.create_task(send_one(r)) for r in rows]
+                    await asyncio.gather(*tasks)
+    except Exception as e:
+        print("digest error:", e)

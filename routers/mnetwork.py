@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from models import mnetwork_create_community, mnetwork_create_thread, mnetwork_create_post, editCommunity, editThread, threadOperation, like, follow, transferCommunityOwnership, deleteCommunity, updateCommunitySettings, deletePost, field_1
 from auth import get_current_user_id, check_password, hash_ip
 from db import get_connection, get_dict_connection
-from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban, set_setting, get_setting, add_badge, rate_limiter, rate_limiter_guest_ip, get_guest_info
+from utils import get_user_information, get_user_information_by_username, send_notification, notification, check_ban, set_setting, get_setting, add_badge, rate_limiter, rate_limiter_guest_ip, get_guest_info, get_mnetwork_feed
 from typing import Optional
 from config import IMAGE_UPLOAD_FOLDER
 from PIL import Image
@@ -763,47 +763,12 @@ async def router_mnetwork_unfollow_user(payload: follow, user_id=Depends(get_cur
             else:
                 raise HTTPException(status_code=404, detail="The user you attempted to unfollow was not found.")
                     
+
+
 @router.get("/mnetwork/get-feed")
 async def router_mnetwork_get_feed(user_id=Depends(get_current_user_id)):
-    async with get_dict_connection("mnetwork") as conn:
-        async with conn.cursor() as cursor:
-            await cursor.execute(
-                '''SELECT community_id FROM community_follows WHERE author_id = %s''',
-                (user_id,)
-            )
-            followed_communities = [row['community_id'] for row in await cursor.fetchall()]
-            
-            if followed_communities:
-                format_strings = ",".join(['%s'] * len(followed_communities))
-                query = f'''
-                    SELECT t.*, c.name AS community_name
-                    FROM threads t
-                    JOIN communities c ON t.community_id = c.id
-                    WHERE t.community_id IN ({format_strings})
-                    ORDER BY t.timestamp DESC
-                    LIMIT 30
-                '''
-                await cursor.execute(query, tuple(followed_communities))
-                threads = await cursor.fetchall()
-            else:
-                query = '''
-                    SELECT t.*, c.name AS community_name
-                    FROM threads t
-                    JOIN communities c ON t.community_id = c.id
-                    WHERE t.community_id = 3
-                    ORDER BY t.timestamp DESC
-                    LIMIT 30
-                '''
-                await cursor.execute(query)
-                threads = await cursor.fetchall()
-            
-            for thread in threads:
-                try:
-                    thread["extra_info"] = json.loads(thread.get("extra_info", "{}"))
-                except (TypeError, json.JSONDecodeError):
-                    thread["extra_info"] = {}
-            
-            return {"threads": threads}
+    threads = await get_mnetwork_feed(user_id)   
+    return {"threads": threads} 
 
 
 @router.post("/mnetwork/transfer-community-ownership")

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from auth import get_current_user_id
 from db import get_connection, get_dict_connection
-from utils import get_user_information, get_user_information_by_username, notification, send_notification, get_setting, set_setting
+from utils import get_user_information, get_user_information_by_username, notification, send_notification, get_setting, set_setting, send_daily_digest
 from models import banning, unbanning, sendNotification, addBadge
 import json
 
@@ -201,3 +201,20 @@ async def add_badge(payload: addBadge, user_id = Depends(get_current_user_id)):
         await set_setting(subject_id, "Badges", json.dumps(subject_badges))
 
         return {"detail": f"Badge '{new_badge}' added to {subject_username}"}
+
+@router.post("/admin/send-daily-digest")
+async def router_send_daily_digest(user_id: int = Depends(get_current_user_id)):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="You must log in to do this action.")
+    
+    async with get_dict_connection("main") as conn:
+        user_info = await get_user_information(user_id, conn)
+        if not user_info:
+            raise HTTPException(status_code=404, detail="User not found.")
+        trust = int(user_info.get("trust", 0))
+
+        if trust < 10:
+            raise HTTPException(status_code=403, detail="You are not an admin.")
+        
+        await send_daily_digest()
+        return {"detail": "Daily digest sending initiated."}
