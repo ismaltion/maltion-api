@@ -1,10 +1,11 @@
 from fastapi import Cookie, HTTPException, Depends
 from db import get_connection
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 import bcrypt
 import secrets
 import hashlib
+import hmac
 import os
 
 load_dotenv()
@@ -54,7 +55,7 @@ def check_password(password: str, hashed: str) -> bool:
 
 async def create_session(conn, user_id, expiry_days=7):
     session_token = secrets.token_hex(32)
-    expires_at = datetime.utcnow() + timedelta(days=expiry_days)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=expiry_days)
 
     async with conn.cursor() as cursor:
         await cursor.execute(
@@ -107,10 +108,17 @@ async def remove_session_by_user_id(conn, user_id):
         await conn.commit()
 
 async def check_mclient_password(password, hash):
+    # Use compare_digest to avoid timing attacks
     saltedpassword = f"{MCLIENT_SALT}{password}"
     new_hash = hashlib.sha256(saltedpassword.encode()).hexdigest()
-
-    return new_hash == hash
+    if new_hash is None or hash is None:
+        return False
+    try:
+        return hmac.compare_digest(new_hash, hash)
+    except Exception:
+        # If compare fails for some reason, log and return False
+        logging.exception("Error comparing mclient hashes")
+        return False
 
 def hash_ip(ip_addr):
     return hashlib.sha512(ip_addr.encode()).hexdigest()
