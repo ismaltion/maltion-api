@@ -198,7 +198,8 @@ async def set_setting(user_id, setting, value, conn=None, commit=True):
                 await cursor.execute("DELETE FROM user_settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
             else:
                 await cursor.execute("SELECT COUNT(*) FROM user_settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
-                exists = await cursor.fetchone()[0] > 0
+                result = await cursor.fetchone()
+                exists = result[0] > 0
                 if exists:
                     await cursor.execute("UPDATE user_settings SET setting_value = %s, last_updated = NOW() WHERE user_id = %s AND setting_key = %s", (value, user_id, setting))
                 else:
@@ -212,7 +213,8 @@ async def set_setting(user_id, setting, value, conn=None, commit=True):
                     await cursor.execute("DELETE FROM user_settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
                 else:
                     await cursor.execute("SELECT COUNT(*) FROM user_settings WHERE user_id = %s AND setting_key = %s", (user_id, setting))
-                    exists = await cursor.fetchone()[0] > 0
+                    result = await cursor.fetchone()
+                    exists = result[0] > 0
                     if exists:
                         await cursor.execute("UPDATE user_settings SET setting_value = %s, last_updated = NOW() WHERE user_id = %s AND setting_key = %s", (value, user_id, setting))
                     else:

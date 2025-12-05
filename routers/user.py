@@ -621,7 +621,7 @@ async def route_upload_image(user_id: int = Depends(get_current_user_id), file: 
     contents = await file.read()
 
     if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="File too large. Max size is 30 KB.")
+        raise HTTPException(status_code=400, detail="File too large. Max size is 50 KB.")
 
     filename_lower = file.filename.lower()
     if filename_lower.endswith(".gif"):

@@ -163,7 +163,7 @@ async def chat_ws(
                     FROM chat
                     WHERE (author_id=%s AND recipient_id=%s) OR (author_id=%s AND recipient_id=%s)
                     ORDER BY timestamp DESC
-                    LIMIT 20
+                    LIMIT 100
                     """,
                     (user_id, friend_id, friend_id, user_id)
                 )
@@ -238,7 +238,7 @@ async def chat_ws(
                     await safe_send(friend_ws, message_payload)
                 else:
                     notify = notification("mnetwork", f"You have new message(s) from @{username}", friend_id, "chat")
-                    await send_notification(friend_id, notify, no_spam=True)
+                    await send_notification(friend_id, notify, no_spam=False)
 
     except WebSocketDisconnect:
         if conversation_key in active_conversations:

@@ -6,7 +6,7 @@ load_dotenv()
 
 UPLOAD_FOLDER = '../uploads/pfp'
 IMAGE_UPLOAD_FOLDER = '../uploads/pictures'
-MAX_FILE_SIZE = 30 * 1024  # 30 KB
+MAX_FILE_SIZE = 50 * 1024  # 50 KB
 
 ALLOWED_ORIGINS = [
     "https://www.maltion.com",

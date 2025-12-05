@@ -418,18 +418,23 @@ async def router_get_thread(thread: int, user_id = Depends(get_current_user_id))
 async def router_get_community_threads(community: int):
     async with get_dict_connection("mnetwork") as conn:
         async with conn.cursor() as cursor:
-            await cursor.execute('''SELECT * FROM threads WHERE community_id = %s AND pinned = 0 LIMIT 50''', (community,))
+            await cursor.execute('''SELECT * FROM threads WHERE community_id = %s AND pinned = 0 ORDER BY timestamp DESC LIMIT 50''', (community,))
             result = await cursor.fetchall()
 
-            await cursor.execute('''SELECT * FROM threads WHERE community_id = %s AND pinned = 1 LIMIT 50''', (community,))
+            await cursor.execute('''SELECT * FROM threads WHERE community_id = %s AND pinned = 1 ORDER BY timestamp DESC LIMIT 50''', (community,))
             pinned = await cursor.fetchall()
             return { "threads": result, "pinned": pinned }
 
 @router.get("/mnetwork/get-thread-posts")
-async def router_get_thread_posts(thread: int, user_id = Depends(get_current_user_id)):
+async def router_get_thread_posts(thread: int, page: Optional[int] = 1, sort: Optional[str] = "DESC", user_id = Depends(get_current_user_id)):
     async with get_dict_connection("mnetwork") as conn:
         async with conn.cursor() as cursor:
-            await cursor.execute('''SELECT * FROM posts WHERE thread_id = %s ORDER BY timestamp DESC LIMIT 50''', (thread,))
+            sort = sort.upper()
+            if sort == "ASC":
+                await cursor.execute('''SELECT * FROM posts WHERE thread_id = %s ORDER BY timestamp ASC LIMIT 25 OFFSET %s''', (thread, 25 * (page - 1)))
+            else:
+                sort == "DESC"
+                await cursor.execute('''SELECT * FROM posts WHERE thread_id = %s ORDER BY timestamp DESC LIMIT 25 OFFSET %s''', (thread, 25 * (page - 1)))
             posts = await cursor.fetchall()
 
             liked_post_ids = set()
@@ -848,8 +853,7 @@ async def delete_community(payload: deleteCommunity, user_id=Depends(get_current
 
     async with get_dict_connection("mnetwork") as conn:
         try:
-            conn.autocommit = False
-            with conn.cursor() as cursor:
+            async with conn.cursor() as cursor:
                 await cursor.execute("SELECT author_id FROM communities WHERE id = %s LIMIT 1", (community_id,))
                 result = await cursor.fetchone()
 
@@ -887,7 +891,7 @@ async def delete_community(payload: deleteCommunity, user_id=Depends(get_current
 
                 await cursor.execute("DELETE FROM communities WHERE id = %s", (community_id,))
                 await cursor.execute("DELETE FROM threads WHERE community_id = %s", (community_id,))
-                conn.commit()
+                await conn.commit()
 
                 return {"message": "Community successfully deleted."}
 
@@ -1068,30 +1072,84 @@ async def get_user_communities(user: str):
             return {"posts": result}
         
 @router.get("/mnetwork/get-user-followers")
-async def get_user_communities(user: str):
+async def get_user_followers(user: str):
     user_information = await get_user_information_by_username(user)
     if not user_information:
         raise HTTPException(status_code=404, detail="User not found.")
     user_id = user_information["id"]
+    
     async with get_dict_connection("mnetwork") as conn:
         async with conn.cursor() as cursor:
-            await cursor.execute("SELECT * FROM user_follows WHERE user_id = %s ORDER BY timestamp DESC LIMIT 50", (user_id,))
-            result = await cursor.fetchall()
+            await cursor.execute(
+                "SELECT author_id, timestamp FROM user_follows WHERE user_id = %s ORDER BY timestamp DESC LIMIT 50", 
+                (user_id,)
+            )
+            followers_data = await cursor.fetchall()
 
-            return {"followers": result}
+    if not followers_data:
+        return {"followers": []}
+
+    follower_ids = [follower['author_id'] for follower in followers_data]
+    
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            format_strings = ','.join(['%s'] * len(follower_ids))
+            
+            await cursor.execute(
+                f"SELECT id, username FROM users WHERE id IN ({format_strings})",
+                tuple(follower_ids)
+            )
+            user_results = await cursor.fetchall()
+    
+    id_to_username = {user_row['id']: user_row['username'] for user_row in user_results}
+
+    final_followers = []
+    for follower in followers_data:
+        follower_id = follower['author_id']
+        follower['username'] = id_to_username.get(follower_id) 
+        final_followers.append(follower)
+
+    return {"followers": final_followers}
         
 @router.get("/mnetwork/get-user-following")
-async def get_user_communities(user: str):
+async def get_user_following(user: str):
     user_information = await get_user_information_by_username(user)
     if not user_information:
         raise HTTPException(status_code=404, detail="User not found.")
     user_id = user_information["id"]
+    
     async with get_dict_connection("mnetwork") as conn:
         async with conn.cursor() as cursor:
-            await cursor.execute("SELECT * FROM user_follows WHERE author_id = %s ORDER BY timestamp DESC LIMIT 50", (user_id,))
-            result = await cursor.fetchall()
+            await cursor.execute(
+                "SELECT user_id, timestamp FROM user_follows WHERE author_id = %s ORDER BY timestamp DESC LIMIT 50", 
+                (user_id,)
+            )
+            following_data = await cursor.fetchall()
 
-            return {"following": result}
+    if not following_data:
+        return {"following": []}
+
+    followed_ids = [followed['user_id'] for followed in following_data]
+    
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            format_strings = ','.join(['%s'] * len(followed_ids))
+            
+            await cursor.execute(
+                f"SELECT id, username FROM users WHERE id IN ({format_strings})",
+                tuple(followed_ids)
+            )
+            user_results = await cursor.fetchall()
+    
+    id_to_username = {user_row['id']: user_row['username'] for user_row in user_results}
+
+    final_following = []
+    for followed in following_data:
+        followed_id = followed['user_id']
+        followed['username'] = id_to_username.get(followed_id) 
+        final_following.append(followed)
+
+    return {"following": final_following}
         
 @router.get("/mnetwork/get-followed-communities")
 async def get_followed_communities(user_id=Depends(get_current_user_id)):
