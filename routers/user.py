@@ -339,6 +339,8 @@ async def route_changeUsername(payload: ChangeFieldRequest, user_id: int = Depen
         newValue = payload.value
         if not user_info:
             raise HTTPException(status_code=404, detail="User not found - You need to login first.")
+
+        oldUsername = user_info["username"]
         
         newUsername = str(newValue)
         if len(newUsername) < 4 or len(newUsername) > 20 or " " in newUsername:
@@ -348,13 +350,22 @@ async def route_changeUsername(payload: ChangeFieldRequest, user_id: int = Depen
             await cursor.execute("SELECT id FROM users WHERE username = %s", (newUsername,))
             if await cursor.fetchone():
                 raise HTTPException(status_code=400, detail="Username already taken")
-            await cursor.execute('''UPDATE users SET username = %s WHERE id = %s''', (newUsername, user_id))
+            await cursor.execute("UPDATE users SET username = %s WHERE id = %s", (newUsername, user_id))
+            await cursor.execute("UPDATE friends SET author = %s WHERE author_id = %s", (newUsername, user_id))
             await conn.commit()
 
         oldFilename = "../uploads/pfp/" + user_info["username"] + ".jpg"
         newFilename = "../uploads/pfp/" + newUsername + ".jpg"
         if os.path.exists(oldFilename):
             os.rename(oldFilename, newFilename)
+
+    async with get_connection("mnetwork") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("UPDATE posts SET author_name = %s WHERE author_id = %s", (newUsername, user_id))
+            await cursor.execute("UPDATE threads SET author_name = %s WHERE author_id = %s", (newUsername, user_id))
+            await cursor.execute("UPDATE communities SET author_name = %s WHERE author_id = %s", (newUsername, user_id))
+            await cursor.execute("UPDATE chat SET author_name = %s WHERE author_id = %s", (newUsername, user_id))
+            await conn.commit()
 
     return Response(status_code=200)
 
