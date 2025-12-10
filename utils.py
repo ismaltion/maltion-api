@@ -8,6 +8,8 @@ from auth import hash_ip
 from itertools import islice
 import json, secrets, re, asyncio
 
+# Note: The row "friends" is deprecated. To see the friends of a user, the friends table should be used.
+
 async def get_user_information(user_id, conn=None):
     if conn:
         async with conn.cursor() as cursor:
@@ -457,3 +459,10 @@ async def send_daily_digest():
                     await asyncio.gather(*tasks)
     except Exception as e:
         print("digest error:", e)
+
+async def get_friend_list(user_id):
+    async with get_dict_connection("main") as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM friends WHERE author_id = %s AND status = %s", (user_id, "accepted"))
+            friends = await cursor.fetchall()
+            return friends

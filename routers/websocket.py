@@ -1,7 +1,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
 from db import get_connection, get_dict_connection
 from datetime import datetime
-from utils import get_user_information, get_user_information_by_username, notification, send_notification
+from utils import get_user_information, get_user_information_by_username, notification, send_notification, get_friend_list
 from auth import get_current_user_id
 from typing import Set
 from collections import defaultdict
@@ -118,6 +118,16 @@ async def chat_ws(
     user_id: int = Depends(get_current_user_id),
     friend_username: str = Query(...)
 ):
+    get_friend_list(user_id)
+
+    # update requested by @aveyal in MNetwork: prevent chat if the friend is not in the friend list (good idea).
+    friends = await get_friend_list(user_id)
+    friend_usernames = {f["friend_username"] for f in friends}
+    if friend_username not in friend_usernames:
+        await safe_send(websocket, {type: "message", "timestamp": str(datetime.utcnow()), "author_id": 0, "author_name": "System", "recipient_id": user_id, "content": "You can only chat with users in your friends list."})
+        await websocket.close(code=1008)
+        return
+
     friend_info = await get_user_information_by_username(friend_username)
     if not friend_info:
         await websocket.close(code=1008)

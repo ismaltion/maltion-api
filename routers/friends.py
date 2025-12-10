@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from auth import get_current_user_id
 from db import get_connection, get_dict_connection
-from utils import get_user_information, get_user_information_by_username, send_notification, notification
+from utils import get_user_information, get_user_information_by_username, send_notification, notification, get_friend_list
 from models import add_friend, decline_friend_request, friend_operation
 
 router = APIRouter()
