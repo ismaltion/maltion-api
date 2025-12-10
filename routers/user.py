@@ -7,6 +7,7 @@ from utils import get_user_information, send_notification, send_email, generate_
 from typing import Optional, List
 from datetime import date, datetime, timedelta
 from config import UPLOAD_FOLDER, MAX_FILE_SIZE
+from ratelimit import limiter
 import os, json, re, traceback, math, asyncio, random
 
 USERNAME_REGEX = r'^[a-zA-Z0-9_-]+$'
@@ -19,6 +20,7 @@ async def router_ping():
     return {"message": "Maltion API is working correctly."}
 
 @router.post("/register")
+@limiter.limit("5/minute")
 async def register_user(
     request: Request,
     username: str = Body(...),

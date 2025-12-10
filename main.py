@@ -2,14 +2,25 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 from config import ALLOWED_ORIGINS
-from routers import user, websocket, stats, friends, mnetwork, rdmedics, cheatgpt, admin, rooms
-from db import get_dict_connection
+from routers import user, websocket, stats, friends, mnetwork, rdmedics, cheatgpt, admin
+from db import get_dict_connection, init_db_pools, close_db_pools 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime
 from utils import send_mnetwork_digest, send_daily_digest
+from contextlib import asynccontextmanager
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 import asyncio, json
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db_pools(app) 
+    yield
+    await close_db_pools(app)
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,6 +29,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(SlowAPIMiddleware)
 
 app.include_router(user.router)
 app.include_router(websocket.router)
