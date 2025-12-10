@@ -122,9 +122,9 @@ async def chat_ws(
 
     # update requested by @aveyal in MNetwork: prevent chat if the friend is not in the friend list (good idea).
     friends = await get_friend_list(user_id)
-    friend_usernames = {f["friend_username"] for f in friends}
+    friend_usernames = {f["recipient"] for f in friends}
     if friend_username not in friend_usernames:
-        await safe_send(websocket, {type: "message", "timestamp": str(datetime.utcnow()), "author_id": 0, "author_name": "System", "recipient_id": user_id, "content": "You can only chat with users in your friends list."})
+        await safe_send(websocket, {"type": "message", "timestamp": str(datetime.utcnow()), "author_id": 0, "author_name": "System", "recipient_id": user_id, "content": "You can only chat with users in your friends list."})
         await websocket.close(code=1008)
         return
 
