@@ -637,7 +637,7 @@ async def route_upload_image(user_id: int = Depends(get_current_user_id), file: 
         raise HTTPException(status_code=400, detail="File too large. Max size is 50 KB.")
 
     filename_lower = file.filename.lower()
-    if filename_lower.endswith(".gif"):
+    if contents[:6] in (b"GIF87a", b"GIF89a"):
         if premium != 1:
             raise HTTPException(status_code=403, detail="GIF uploads are only allowed for premium users.")
         file_location = os.path.join(UPLOAD_FOLDER, f"{user_info['username']}.gif")
