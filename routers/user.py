@@ -73,7 +73,7 @@ async def register_user(
             await cursor.execute("INSERT INTO users (username, password, email, displayName, birthday, createdOn, biography, loginAttempts, lastInteraction, last_mnetwork_interaction, country, IP_address, invited_by, unlock_time) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s)", (username, hashed, email, displayName, birthday, now, biography, now, now, country, stored_ip, invited_by, now))
             await conn.commit()
 
-            generate_verification_email(username)
+            await generate_verification_email(username)
 
     return {"message": "User registered"}
 
