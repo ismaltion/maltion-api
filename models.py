@@ -1,12 +1,19 @@
-from pydantic import BaseModel
+//ahhh
 from datetime import date
 from enum import Enum
 from typing import Optional
 
+from pydantic import BaseModel
+
+
 class WrongDatabase(Exception):
-    def __init__(self, message="Attempted to connect to an undefined database."):
+    def __init__(
+        self,
+        message: str = "Attempted to connect to an undefined database."
+    ):
         self.message = message
         super().__init__(self.message)
+
 
 class FieldType(str, Enum):
     username = "username"
@@ -15,113 +22,142 @@ class FieldType(str, Enum):
     birthday = "birthday"
     email = "email"
 
+
 class field_1(BaseModel):
     value: str
+
 
 class field_2(BaseModel):
     value1: str
     value2: str
 
+
 class ChangeFieldRequest(BaseModel):
     value: str
 
+
 class ChangeDateRequest(BaseModel):
     value: date
+
 
 class ChangePasswordRequest(BaseModel):
     oldValue: str
     newValue: str
 
+
 class add_friend(BaseModel):
     friend_name: str
-    message: Optional[str] = "No message added."
+    message: str = "No message added."
+
 
 class decline_friend_request(BaseModel):
     friend_name: str
 
+
 class friend_operation(BaseModel):
     friend_name: str
 
+
 class mnetwork_create_community(BaseModel):
     name: str
-    description: Optional[str] = "No description provided."
+    description: str = "No description provided."
+
 
 class mnetwork_create_thread(BaseModel):
     title: str
-    content: Optional[str] = "No description provided."
+    content: str = "No description provided."
     community_id: int
+
 
 class mnetwork_create_post(BaseModel):
     content: str
     thread_id: int
 
+
 class like(BaseModel):
     id: int
 
+
 class follow(BaseModel):
     user: str
+
 
 class transferCommunityOwnership(BaseModel):
     community_id: int
     new_owner: str
     password: str
 
+
 class deleteCommunity(BaseModel):
     community_id: int
     password: str
 
+
 class threadOperation(BaseModel):
     thread_id: int
+
 
 class updateCommunitySettings(BaseModel):
     community_id: int
     locked: int
     can_add: int
 
+
 class reportAbuse(BaseModel):
     module: str
     reason: str
     type: str
     id: int
-    detail: Optional[str] = "No details provided."
+    detail: str = "No details provided."
+
 
 class editCommunity(BaseModel):
     community_id: int
     value: str
 
+
 class editThread(BaseModel):
     thread_id: int
     value: str
 
+
 class deletePost(BaseModel):
     id: int
+
 
 class banning(BaseModel):
     username: str
     module: str
     reason: Optional[str] = None
 
+
 class unbanning(BaseModel):
     username: str
+
 
 class sendNotification(BaseModel):
     username: str
     content: str
 
+
 class addBadge(BaseModel):
     username: str
     badge: str
 
+
 class createGuestProfile(BaseModel):
     nickname: str
 
+
 class recoverAcc(BaseModel):
     username: str
+
 
 class verifyRecoverAcc(BaseModel):
     username: str
     verification_code: str
     password: str
+
 
 class verifyUnlockAcc(BaseModel):
     username: str
